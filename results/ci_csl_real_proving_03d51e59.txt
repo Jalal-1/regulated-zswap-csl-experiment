@@ -1,0 +1,261 @@
+csl-real-proving / CSL scenarios and regressions (real proofs) on ledger commit 03d51e59647d748cd29dbcf4fde7090fbe04cebf
+run https://github.com/Jalal-1/regulated-zswap-csl-experiment/actions/runs/40239225403  job https://github.com/Jalal-1/regulated-zswap-csl-experiment/actions/runs/40239225403/job/121307240631
+job started 2026-10-25T22:14:09Z, completed 2026-10-25T22:46:02Z (GitHub-hosted ubuntu-latest, 4 vCPU)
+
+== run metadata (part 1) ==
+  "implementation_commit": "03d51e59647d748cd29dbcf4fde7090fbe04cebf",
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+  "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+  "features": "--features proving (default proof-verifying); mock-verify asserted absent",
+  "runner": "Linux 6.17.0-1022-azure x86_64",
+  "started": "2026-10-25T22:14:27Z"
+
+== mock-verify absent from the resolved feature graph ==
+midnight-ledger-v10: mock-verify occurrences = 0
+midnight-zswap: mock-verify occurrences = 0
+midnight-zkir: mock-verify occurrences = 0
+midnight-onchain-runtime: mock-verify occurrences = 0
+midnight-coin-structure: mock-verify occurrences = 0
+
+== compiled zswap keys placed in the parameter cache ==
+zswap/9/spend.prover matches the pinned hash
+zswap/9/spend.verifier matches the pinned hash
+zswap/9/spend.bzkir matches the pinned hash
+zswap/9/output.prover matches the pinned hash
+zswap/9/output.verifier matches the pinned hash
+zswap/9/output.bzkir matches the pinned hash
+zswap/9/sign.prover matches the pinned hash
+zswap/9/sign.verifier matches the pinned hash
+zswap/9/sign.bzkir matches the pinned hash
+
+== suites ==
+     Running unittests src/lib.rs
+test custom_spend::tag_enforcement_test_SpendRule ... ok
+test custom_spend::tests::descriptor_hash_matches_fixed_layout ... ok
+test custom_spend::tests::empty_rule_preserves_legacy_derivation ... ok
+test custom_spend::tests::policy_binding_is_blinded_and_type_bound ... ok
+test custom_spend::tests::rules_produce_distinct_token_types ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.00s
+     Running unittests src/lib.rs
+test ir::proptest_random_data_deserialize_Instruction ... ok
+test ir::proptest_random_data_deserialize_IrSource ... ok
+test ir::proptest_deserialize_Instruction ... ok
+test ir::proptest_serialized_size_Instruction ... ok
+test ir::tag_enforcement_test_Instruction ... ok
+test ir::tag_enforcement_test_IrSource ... ok
+test ir::tag_enforcement_test_ProverKey ... ok
+test ir::proptest_serialized_size_IrSource ... ok
+test ir::proptest_deserialize_IrSource ... ok
+test csl_whitelist::tests::paths_recompute_the_root ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+     Running tests/zswap_spend.rs
+test vk_is_byte_identical_to_shipped_spend_verifier ... ok
+test proofs_verify_against_shipped_verifier_key ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.56s
+     Running tests/zswap_spend_csl.rs
+test derivation_matches_coin_structure ... ok
+test historical_v1_csl_proofs_do_not_verify_under_v2_key ... ok
+test write_csl_spend_verifier_key ... ignored
+test legacy_relation_proofs_do_not_verify_under_csl_key ... ok
+test csl_spend_relation_rejects_wrong_rule_witness ... ok
+test csl_spend_relation_end_to_end ... ok
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 74.83s
+     Running unittests src/lib.rs
+test keys::tests::coin_key_derivation_matches_test_vectors ... ok
+test ledger::tag_enforcement_test_State ... ok
+test keys::tests::encryption_key_derivation_matches_test_vectors ... ok
+test local::tag_enforcement_test_State ... ok
+test local::tests::coin_encryption_succeeds ... ok
+test construct::tests::bad_transient ... ok
+test prove::tests::test_pi_lengths ... ok
+test structure::tag_enforcement_test_AuthorizedClaim ... ok
+test structure::tag_enforcement_test_CoinCiphertext ... ok
+test structure::tag_enforcement_test_Delta ... ok
+test structure::tag_enforcement_test_Input ... ok
+test structure::tag_enforcement_test_Offer ... ok
+test structure::tag_enforcement_test_Output ... ok
+test structure::tag_enforcement_test_SpendPolicyBinding ... ok
+test structure::tag_enforcement_test_Transient ... ok
+test verify::embedded_spend_verifier_key_is_the_csl_key ... ok
+test verify::test_caddr_op ... ok
+test ledger::tests::test_roots_retention ... ok
+test ledger::tests::test_filtered_spend ... ok
+test prove::tests::test_proof_sizes ... ok
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.80s
+     Running tests/state.rs
+test state_filtering ... ok
+test coin_receiving ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs
+test context::shielded_mint_key_tests::serde_effects_roundtrip_spend_rules ... ok
+test context::shielded_mint_key_tests::vm_value_roundtrip_spend_rules ... ok
+test context::tag_enforcement_test_BlockContext ... ok
+test context::tag_enforcement_test_ClaimedContractCallsValue ... ok
+test context::tag_enforcement_test_ClaimedUnshieldedSpendsKey ... ok
+test context::tag_enforcement_test_Effects ... ok
+test context::tag_enforcement_test_ShieldedMintKey ... ok
+test transcript::tag_enforcement_test_Transcript ... ok
+test context::proptest_random_data_deserialize_Effects ... ok
+test transcript::tag_enforcement_test_TranscriptVersion ... ok
+test context::proptest_serialized_size_Effects ... ok
+test context::proptest_deserialize_Effects ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+     Running unittests src/main.rs
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/vm.rs
+test tests::cell_flow ... ok
+test tests::counter_overflow ... ok
+test tests::counter_flow ... ok
+test tests::individual_vm_instructions ... ok
+test tests::list_flow ... ok
+test tests::map_flow ... ok
+test tests::run_program_step_limited_respects_limit ... ok
+test tests::test_context_self ... ok
+test tests::set_flow ... ok
+test tests::merkle_tree_flow ... ok
+test tests::historic_merkle_tree_flow ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs
+test annotation::tag_enforcement_test_NightAnn ... ok
+test dust::tag_enforcement_test_DustActions ... ok
+test dust::tag_enforcement_test_DustActionsSigningEnvelope ... ok
+test dust::tag_enforcement_test_DustCommitment ... ok
+test dust::tag_enforcement_test_DustGenerationInfo ... ok
+test dust::tag_enforcement_test_DustGenerationState ... ok
+test dust::tag_enforcement_test_DustGenerationUniquenessInfo ... ok
+test dust::tag_enforcement_test_DustOutput ... ok
+test dust::tag_enforcement_test_DustLocalState ... ok
+test dust::tag_enforcement_test_DustNullifier ... ok
+test dust::tag_enforcement_test_DustParameters ... ok
+test dust::tag_enforcement_test_DustPreProjection ... ok
+test dust::tag_enforcement_test_DustPublicKey ... ok
+test dust::tag_enforcement_test_DustRegistrationSigningEnvelope ... ok
+test dust::tag_enforcement_test_DustRegistration ... ok
+test dust::tag_enforcement_test_DustSecretKey ... ok
+test dust::tag_enforcement_test_DustSpend ... ok
+test dust::tag_enforcement_test_DustState ... ok
+test dust::tag_enforcement_test_DustUtxoState ... ok
+test dust::tag_enforcement_test_DustWalletUtxoState ... ok
+test dust::tag_enforcement_test_QualifiedDustOutput ... ok
+test events::tag_enforcement_test_Event ... ok
+test dust::tag_enforcement_test_InitialNonce ... ok
+test events::tag_enforcement_test_EventDetails ... ok
+test dust::tests::encryption_key_derivation_matches_test_vectors ... ok
+test events::tag_enforcement_test_ZswapPreimageEvidence ... ok
+test events::tag_enforcement_test_EventSource ... ok
+test prove::tests::a_mock_proof_serializes_to_the_size_it_stands_in_for ... ok
+test prove::tests::test_mock_proving ... ok
+test prove::tests::test_mock_proving_tokio ... ok
+test semantics::tests::bridge_transfer_passes_invariant ... ok
+test semantics::tests::bridge_claim_not_enough_available ... ok
+test semantics::tests::bridge_transfer_sub_minimum_passes_invariant ... ok
+test semantics::tests::insert_updates_annotation ... ok
+test semantics::tests::remove_updates_annotation ... ok
+test semantics::tests::rewards_claim_not_enough_available ... ok
+test semantics::tests::multiple_inserts_accumulate ... ok
+test semantics::tests::remove_one_of_many ... ok
+test semantics::tests::simple_rewards_claim ... ok
+test semantics::tests::simple_bridge_claim ... ok
+test structure::tag_enforcement_test_CNightGeneratesDustActionType ... ok
+test structure::tag_enforcement_test_ClaimKind ... ok
+test structure::tag_enforcement_test_ClaimRewardsTransaction ... ok
+test structure::tag_enforcement_test_ContractAction ... ok
+test structure::tag_enforcement_test_ContractCall ... ok
+test structure::tag_enforcement_test_CNightGeneratesDustEvent ... ok
+test structure::tag_enforcement_test_CardanoBridge ... ok
+test structure::tag_enforcement_test_ContractOperationVersionedVerifierKey ... ok
+test structure::tag_enforcement_test_InnerIntentPedersenEnvelope ... ok
+test structure::tag_enforcement_test_InnerIntentSigningEnvelope ... ok
+test structure::tag_enforcement_test_ContractDeploy ... ok
+test structure::tag_enforcement_test_IntentHash ... ok
+test structure::tag_enforcement_test_IntentPedersenEnvelope ... ok
+test structure::tag_enforcement_test_ContractOperationVersion ... ok
+test structure::tag_enforcement_test_Intent ... ok
+test structure::tag_enforcement_test_IntentSigningEnvelope ... ok
+test structure::tag_enforcement_test_LedgerState ... ok
+test structure::tag_enforcement_test_MaintenanceUpdateSigningEnvelope ... ok
+test structure::tag_enforcement_test_OutputInstructionShielded ... ok
+test structure::tag_enforcement_test_LedgerParameters ... ok
+test structure::tag_enforcement_test_MaintenanceUpdate ... ok
+test structure::tag_enforcement_test_OutputInstructionUnshielded ... ok
+test structure::tag_enforcement_test_ProofPreimageVersioned ... ok
+test structure::tag_enforcement_test_Signature ... ok
+test structure::tag_enforcement_test_ProofVersioned ... ok
+test structure::tag_enforcement_test_SignatureVerifyingKey ... ok
+test structure::tag_enforcement_test_ReplayProtectionState ... ok
+test structure::tag_enforcement_test_SigningKey ... ok
+test structure::tag_enforcement_test_SignaturesValue ... ok
+test structure::tag_enforcement_test_StandardTransaction ... ok
+test structure::tag_enforcement_test_Transaction ... ok
+test structure::tag_enforcement_test_TransactionCostModel ... ok
+test structure::tag_enforcement_test_TransactionHash ... ok
+test structure::tag_enforcement_test_SingleUpdate ... ok
+test structure::tag_enforcement_test_SystemTransaction ... ok
+test structure::tag_enforcement_test_TransactionIdentifier ... ok
+test structure::tag_enforcement_test_TransactionLimits ... ok
+test structure::tag_enforcement_test_UnshieldedOffer ... ok
+test structure::tag_enforcement_test_UnshieldedOfferSigningEnvelope ... ok
+test structure::tag_enforcement_test_Utxo ... ok
+test structure::tag_enforcement_test_UtxoMeta ... ok
+test structure::tag_enforcement_test_UtxoOutput ... ok
+test structure::tag_enforcement_test_UtxoSpend ... ok
+test structure::tag_enforcement_test_UtxoState ... ok
+test structure::tests::test_genesis_state ... ok
+test structure::tests::test_max_price_adjustment ... ok
+test structure::tests::test_state_serialized ... ok
+test verify::sparse_unshielded_signature_tests::sparse_signature_offer_rejected_by_well_formed ... ok
+test verify::sparse_unshielded_signature_tests::malformed_sparse_signature_array_rejected_on_deserialize ... ok
+test verify::sparse_unshielded_signature_tests::dense_signature_array_round_trips_and_validates ... ok
+test prove::tests::test_resolver_resolves ... ok
+test result: ok. 91 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.54s
+     Running tests/csl_baseline.rs
+test csl_baseline_plain_transfer_is_accepted ... ok
+test csl_baseline_altered_statement_is_rejected ... ok
+test csl_baseline_corrupted_spend_proof_is_rejected ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 42.51s
+     Running tests/csl_regulated_transfer.rs
+test t01_approved_to_approved_is_accepted ... ok
+test t02_revoked_sender_cannot_move_the_coin ... ok
+test t04_unapproved_recipient_cannot_be_proven ... ok
+test t06_omitted_gate_call_is_rejected ... ok
+test t07_substituted_sender_is_rejected ... ok
+test t08_output_to_unchecked_recipient_is_rejected ... ok
+test t13_attacker_chosen_root_fails_at_replay ... ok
+test t13b_forged_root_in_witness_is_an_invalid_proof ... ok
+test t24_wrong_admin_secret_cannot_update_root ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 231.04s
+     Running tests/csl_regression.rs
+test approved_transfer_still_succeeds ... ok
+test attack_cloned_gate_is_rejected ... ok
+test attack_gate_substitution_is_rejected ... ok
+test historical_v1_spend_proof_is_rejected_by_the_ledger ... ok
+test init_with_wrong_admin_is_rejected ... ok
+test mismatched_blinding_is_rejected ... ok
+test omitted_gate_call_is_rejected ... ok
+test omitted_policy_is_rejected ... ok
+test protected_asset_survives_root_update ... ok
+test route_entry_point_substitution_is_rejected ... ok
+test second_asset_at_same_gate_gets_no_authorization ... ok
+test second_initialization_cannot_retarget ... ok
+test tampered_binding_is_rejected ... ok
+test transfer_before_initialization_is_rejected ... ok
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 344.44s
+
+== step timings ==
+Record run metadata (part 1): 2026-10-25T22:14:27Z -> 2026-10-25T22:14:27Z
+Assert mock-verify is absent from the resolved feature graph: 2026-10-25T22:14:27Z -> 2026-10-25T22:14:35Z
+Public parameters (download, SHA-256 verified): 2026-10-25T22:14:35Z -> 2026-10-25T22:14:49Z
+zkir CLIs: 2026-10-25T22:14:49Z -> 2026-10-25T22:18:53Z
+Test artifacts (zkir compile-many, as flake.nix does): 2026-10-25T22:18:53Z -> 2026-10-25T22:20:35Z
+Local parameters (compiled zswap and dust keys into the cache, as flake.nix local-params does): 2026-10-25T22:20:35Z -> 2026-10-25T22:20:35Z
+Unit suites touched by the change: 2026-10-25T22:20:35Z -> 2026-10-25T22:30:07Z
+Strict controls (plain transfer accepted; corrupted proof and altered statement rejected): 2026-10-25T22:30:07Z -> 2026-10-25T22:32:52Z
+Stage 3 scenarios (T01, T02/T12, T04, T06, T07, T08, T13a, T13b, T24): 2026-10-25T22:32:52Z -> 2026-10-25T22:38:19Z
+Regression suite (gate route authentication, hiding binding, protected-token configuration, historical layouts): 2026-10-25T22:38:19Z -> 2026-10-25T22:45:43Z
+
+== run metadata (part 2) ==
+  "embedded_spend_verifier_sha256": "bb6033fb0cccf70eec4328dca6d61d5e95d336266e629c340bd0eaefbf39e932",
+  "embedded_spend_verifier_pin": "bb6033fb0cccf70eec4328dca6d61d5e95d336266e629c340bd0eaefbf39e932",
+  "finished": "2026-10-25T22:45:43Z"

@@ -1,0 +1,8 @@
+{
+  "implementation_commit": "b047cf77998ebfee2439dc5f936e61b8d10ced56",
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+  "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+  "features": "--features proving (default proof-verifying); mock-verify asserted absent",
+  "runner": "Linux 6.17.0-1022-azure x86_64",
+  "started": "2026-10-25T22:19:06Z"
+}

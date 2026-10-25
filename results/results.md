@@ -188,3 +188,81 @@ targets passes, with the new embedded key in place:
 The two existing tests that spend contract-owned coins (`micro-dao`, `token_vault_shielded`) still
 pass: their coins are of the native type, which the relation accepts under `Empty` with all five
 route authenticators zero.
+
+### Continuous integration under revision 2
+
+Four ledger commits follow the fix commit `7f40a1a4` and its documentation commit `b5575a56`. None
+of them changes the relations, the gate, the verifier or the embedded key; they exist because the
+CI evidence could not be produced without them, or to keep the repository's own test suites
+consistent with the change:
+
+| Commit | Change | Why |
+| --- | --- | --- |
+| `6ff98056` | `.github/workflows/csl-proving.yml`: a step name containing `: ` is quoted; the coin-structure unit test builds in release like the other steps. | The YAML did not parse, so the real-proving workflow at `7f40a1a4` and `b5575a56` failed before any job started. |
+| `6ff98056` | `ledger-wasm/src/zswap_wasm.rs`: `Input::new_contract_owned` is called with the `derivation` argument (`None`). | The first experiment commit (`850fb602`) added the parameter; the upstream `build-wasm` and `integration-tests` jobs had failed since (observed on `8285f69`, `7f40a1a4`, `b5575a56`). |
+| `6ff98056` | `zkir/src/csl_whitelist.rs`, `ledger/tests/csl_*.rs`: six clippy lints (`manual_is_multiple_of`, `useless_conversion`, `err_expect`, `needless_late_init`). | The upstream `check` job runs clippy with `-D warnings`; the whole-workspace command of that job passes locally on rustc 1.97.0 after the change. |
+| `03d51e59` | Both workflow jobs place the compiled zswap and dust keys into `$MIDNIGHT_PP/<component>/<version>/` after compiling the test artifacts, and check the nine zswap files against the SHA-256 sidecars compiled into `midnight-zswap` (`zswap/static/*.sha256`). `scripts/reproduce.sh` does the same in its `artifacts` stage (docs commit `2f787aa0`). | The zswap unit test `prove::tests::test_proof_sizes` reads the published keys from the parameter cache in `FetchMode::Synchronous`, which never downloads. `flake.nix`'s `local-params` fills the cache this way for the Nix-based jobs; the first run of the workflow on `6ff98056` failed at exactly this point, with every earlier step green (run metadata, mock-verify assertion, parameter download, CLI and artifact builds, the zkir and coin-structure suites). A fresh cache built by the new stage passes the whole `midnight-zswap` suite locally (20 tests); each of the nine files matches its pinned hash, so the compiled keys are byte-identical to the published ones. |
+| `b047cf77` | `onchain-runtime/src/context.rs`: one doc-comment link loses its redundant explicit target. | `cargo doc --all-features --no-deps` (the step after clippy in the upstream `check` job) rejects it under `#![deny(warnings)]`; the workspace doc build passes afterwards. |
+| `8b3571f4` | `onchain-runtime-wasm/onchain-runtime-v5.d.ts`: the TypeScript `Effects` type declares `claimedSpendAuthorizations: Fr[]` and `claimedOutputCoverage: CoinCommitment[]`; the seven `Effects` literals in `integration-tests/` carry the two fields. No Rust change. | The experiment's `Effects` has had the two fields since `850fb602` and the wasm serializes them, so three `no-proving` JavaScript tests that compared whole `Effects` objects failed (see "The six JavaScript integration-test failures" below). |
+
+Outcome of the real-proving workflow. The run on `03d51e59` is the first complete one (the cache
+step was introduced there); `b047cf77` differs from it by one doc comment. The pinned commit
+`8b3571f4` adds only TypeScript declarations and JavaScript test literals on top of `b047cf77`: its
+Rust sources, keys and workflow are byte-identical. Trimmed logs:
+`results/ci_csl_real_proving_03d51e59.txt`, `results/ci_csl_real_proving_b047cf77.txt`.
+
+| Run | Result |
+| --- | --- |
+| `csl-real-proving` on `03d51e59`, job "CSL scenarios and regressions (real proofs)" ([run 40239225403](https://github.com/Jalal-1/regulated-zswap-csl-experiment/actions/runs/40239225403)) | **passed**, 32 minutes on a GitHub-hosted 4-vCPU runner, rustc 1.99.1. `mock-verify` occurrences in the resolved feature graph: 0 for all five crates. All nine compiled zswap files matched the pinned hashes. Suites: coin-structure 5; zkir library 10; `zswap_spend` 2; `zswap_spend_csl` 5 (1 ignored); zswap 20 + 2; onchain-runtime 12 + 11; ledger library 91; `csl_baseline` 3 (42.5 s); `csl_regulated_transfer` 9 (231.0 s); `csl_regression` 14 (344.4 s). Embedded spend verifier hash `bb6033fb…e932`, equal to its pin. |
+| `csl-real-proving` on `b047cf77` ([run 40239592300](https://github.com/Jalal-1/regulated-zswap-csl-experiment/actions/runs/40239592300)) | **passed**, 32 minutes, same runner class and toolchain. Same zero `mock-verify` count, same nine hash matches, same suite counts: coin-structure 5; zkir library 10; `zswap_spend` 2; `zswap_spend_csl` 5 (1 ignored); zswap 20 + 2 (including `embedded_spend_verifier_key_is_the_csl_key`); onchain-runtime 12 + 11; ledger library 91; `csl_baseline` 3 (43.7 s); `csl_regulated_transfer` 9 (230.4 s); `csl_regression` 14 (345.1 s). Embedded spend verifier hash `bb6033fb…e932`, equal to its pin. Run metadata uploaded as the `csl-run-metadata` artifact. |
+| `csl-real-proving` on `8b3571f4` (the pinned commit) | RUN_8B_RESULT |
+
+Outcome of the upstream `ci.yml` on `b047cf77` ([run 40239592295](https://github.com/Jalal-1/regulated-zswap-csl-experiment/actions/runs/40239592295)):
+
+| Job | Result |
+| --- | --- |
+| build-ledger (ubuntu, ubuntu-arm, macos) | passed on all three (the Nix-based `cargo test --release` of the default members, as at every experiment revision) |
+| build-proof-server (ubuntu, ubuntu-arm) | passed |
+| build-wasm | passed (it had failed at every experiment revision before `6ff98056`) |
+| integration-tests | failed: 6 of 791 JavaScript tests ([job](https://github.com/Jalal-1/regulated-zswap-csl-experiment/actions/runs/40239592295/job/121308476517)); the job reached the tests for the first time since the wasm build was fixed. Two causes, below. |
+| check | failed at the clippy step, on the pre-existing storage deprecation only (five identical errors, none in the experiment's files; see below) |
+
+**The six JavaScript integration-test failures.**
+
+- *Three `no-proving` tests* (`QueryContext > effects - set and get effects`, `QueryContext > runTranscript`,
+  `functions > should return 2 transcripts from partition transcripts`) compare an `Effects` object
+  against a literal written for the nine upstream fields. The experiment's `Effects` has two more,
+  `claimedSpendAuthorizations` (effects index 9) and `claimedOutputCoverage` (index 10), and the
+  wasm serializes them as two further (empty) arrays, so deep equality fails. Fixed in `8b3571f4` (TypeScript type and test literals); outcome of that commit's `integration-tests` job: INTEGRATION_8B_RESULT.
+- *Three `proving` tests* (`Transient` ×2, `TransactionBig`) prove zswap inputs through the
+  **proof server** (`proof-server` crate, started by the test harness; `MN_AXIOS=true`). The proof
+  server proves a `midnight/zswap/spend` preimage by interpreting the shipped zswap IR with the
+  published key (`versioned_ir::prove` in `proof-server/src/endpoints.rs`); the CSL spend preimage
+  carries 87 inputs where that IR expects 77, so the server answers HTTP 400
+  (`BadInput("Expected 77 inputs, received 87")`) and the client reports `'prove' returned an
+  error`. This is a path the experiment never switched: the hand-written CSL relation is dispatched
+  only by the in-process prover (`zkir::LocalProvingProvider`, used by the ledger, the wallet-side
+  Rust code and every test in this record). **Proving a guarded or unguarded zswap spend through the
+  proof server is unsupported on this branch**; the server would need the same `is_native_relation`
+  dispatch to `zswap_spend_csl::prove_from_preimage` / `csl_gate::prove_from_preimage` in `/prove`
+  and `/prove-tx`, with its parameter provider. Recorded as a next step, not done here (the user's
+  decision for this experiment was to leave node and service integration for later, and the fix
+  prompt asked not to broaden scope).
+
+The full-suite job of `csl-real-proving` is skipped on pushes by design; it runs on the weekly schedule or on manual dispatch with `full_suite`. Pre-existing failures that the experiment does not touch and that are left as they are:
+
+- `check` fails at its clippy step inside `storage/` (`use of deprecated method
+  AtomicU64::fetch_update`), because that job runs on the GitHub runner's current stable toolchain
+  rather than the toolchain pinned by `flake.nix` (rustc 1.97.0, where the deprecation does not
+  exist). The failure is identical at the reviewed revision `8285f69`, and `storage/` is unchanged
+  from the upstream base. The job's spellcheck step reports pre-existing dictionary misses and does
+  not fail the job.
+- `nightly.yml` ("Ledger Build and Test All") triggers on every `ledger-*` branch and requests the
+  `ubuntu-latest-8-core-x64` runner, which this repository does not have; its runs stay queued until
+  the next push cancels them.
+
+Local re-run at `6ff98056` (the last commit that changed Rust sources other than one doc comment;
+same environment as the earlier results; log `final_verification_6ff98056`): zkir library 10
+passed; `zswap_spend_csl` 5 passed, 1 ignored; `csl_gate_layout` 1 passed; `csl_baseline` 3 passed;
+`csl_regulated_transfer` 9 passed (201 s); `csl_regression` 14 passed (308 s). Workspace clippy with
+the upstream flags and `cargo doc --all-features --no-deps` (after `b047cf77`) both pass.

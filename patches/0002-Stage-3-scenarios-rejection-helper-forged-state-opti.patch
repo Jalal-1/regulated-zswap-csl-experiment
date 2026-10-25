@@ -1,8 +1,8 @@
 From f474a2e43873c0c8a2f1a7797cea35987f79525a Mon Sep 17 00:00:00 2001
 From: Jalal Hannan <jalal.hannan@midnight.foundation>
 Date: Sun, 25 Oct 2026 17:24:31 +0000
-Subject: [PATCH 2/9] Stage 3 scenarios: rejection helper, forged-state option,
- fee TTL; results
+Subject: [PATCH 02/10] Stage 3 scenarios: rejection helper, forged-state
+ option, fee TTL; results
 
 - csl_common: fee intents carry a ten-minute TTL (the harness advances
   block time per applied block, and a retained transaction must outlive

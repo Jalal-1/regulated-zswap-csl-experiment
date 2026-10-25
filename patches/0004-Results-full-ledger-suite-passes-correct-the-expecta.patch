@@ -1,7 +1,7 @@
 From 8285f69df4810bb3ab256d68fecad28a62f628e3 Mon Sep 17 00:00:00 2001
 From: Jalal Hannan <jalal.hannan@midnight.foundation>
 Date: Sun, 25 Oct 2026 18:21:00 +0000
-Subject: [PATCH 4/9] Results: full ledger suite passes; correct the
+Subject: [PATCH 04/10] Results: full ledger suite passes; correct the
  expectation about two existing tests
 
 The complete midnight-ledger-v10 package (lib, every integration test) passes

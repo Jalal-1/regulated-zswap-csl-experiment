@@ -1,0 +1,158 @@
+From 8b3571f478949fa40b9e2e649d356ba0e6095fc2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 25 Oct 2026 23:07:16 +0000
+Subject: [PATCH 10/10] JS API: declare the two CSL effects fields; update the
+ integration-test literals
+
+`Effects` gained `claimed_spend_authorizations` (index 9) and
+`claimed_output_coverage` (index 10) in the first experiment commit, and
+the wasm serializes them as two further arrays. The TypeScript type in
+`onchain-runtime-wasm/onchain-runtime-v5.d.ts` now declares them
+(`Fr[]`, `CoinCommitment[]`), and the seven `Effects` literals in
+`integration-tests/` carry them, so the three `no-proving` tests that
+compared whole `Effects` objects (`QueryContext` x2, `functions`) match
+again. No change to the Rust code.
+
+The three `proving` integration tests that fail (`Transient` x2,
+`TransactionBig`) are a different matter: they prove zswap inputs through
+the proof server, which still interprets the shipped zswap IR for
+`midnight/zswap/spend` and rejects the CSL preimage ("Expected 77 inputs,
+received 87"). Proving CSL spends through the proof server is not
+supported on this branch; see the experiment record.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Q9CJgdhDhwqKR5eCeFM2VG
+---
+ .../test/no-proving/ContractCallPrototype.test.ts  |  4 +++-
+ .../src/test/no-proving/LedgerState.test.ts        |  4 +++-
+ .../src/test/no-proving/QueryContext.test.ts       |  8 ++++++--
+ .../src/test/no-proving/functions.test.ts          |  8 ++++++--
+ integration-tests/src/test/utils/log-contract.ts   |  4 +++-
+ onchain-runtime-wasm/onchain-runtime-v5.d.ts       | 14 ++++++++++++++
+ 6 files changed, 35 insertions(+), 7 deletions(-)
+
+diff --git a/integration-tests/src/test/no-proving/ContractCallPrototype.test.ts b/integration-tests/src/test/no-proving/ContractCallPrototype.test.ts
+index 047c7aab..ee9aebef 100644
+--- a/integration-tests/src/test/no-proving/ContractCallPrototype.test.ts
++++ b/integration-tests/src/test/no-proving/ContractCallPrototype.test.ts
+@@ -50,7 +50,9 @@ describe('Ledger API - ContractCallPrototype', () => {
+         unshieldedMints: new Map(),
+         unshieldedInputs: new Map(),
+         unshieldedOutputs: new Map(),
+-        claimedUnshieldedSpends: new Map()
++        claimedUnshieldedSpends: new Map(),
++        claimedSpendAuthorizations: [],
++        claimedOutputCoverage: []
+       },
+       program: ['new', { noop: { n: 5 } }]
+     };
+diff --git a/integration-tests/src/test/no-proving/LedgerState.test.ts b/integration-tests/src/test/no-proving/LedgerState.test.ts
+index 98f48eeb..660d4b6c 100644
+--- a/integration-tests/src/test/no-proving/LedgerState.test.ts
++++ b/integration-tests/src/test/no-proving/LedgerState.test.ts
+@@ -350,7 +350,9 @@ describe('Ledger API - LedgerState', () => {
+           unshieldedMints: new Map(),
+           unshieldedInputs: new Map(),
+           unshieldedOutputs: new Map(),
+-          claimedUnshieldedSpends: new Map()
++          claimedUnshieldedSpends: new Map(),
++          claimedSpendAuthorizations: [],
++          claimedOutputCoverage: []
+         },
+         program: [{ noop: { n: 5 } }]
+       },
+diff --git a/integration-tests/src/test/no-proving/QueryContext.test.ts b/integration-tests/src/test/no-proving/QueryContext.test.ts
+index fa91cfa6..6801cca0 100644
+--- a/integration-tests/src/test/no-proving/QueryContext.test.ts
++++ b/integration-tests/src/test/no-proving/QueryContext.test.ts
+@@ -226,7 +226,9 @@ describe('Ledger API - QueryContext', () => {
+       unshieldedMints: new Map(),
+       unshieldedInputs: new Map(),
+       unshieldedOutputs: new Map(),
+-      claimedUnshieldedSpends: new Map()
++      claimedUnshieldedSpends: new Map(),
++      claimedSpendAuthorizations: [],
++      claimedOutputCoverage: []
+     };
+     queryContext.effects = effects;
+ 
+@@ -310,7 +312,9 @@ describe('Ledger API - QueryContext', () => {
+       unshieldedMints: new Map(),
+       unshieldedInputs: new Map(),
+       unshieldedOutputs: new Map(),
+-      claimedUnshieldedSpends: new Map()
++      claimedUnshieldedSpends: new Map(),
++      claimedSpendAuthorizations: [],
++      claimedOutputCoverage: []
+     };
+     const program: Op<AlignedValue>[] = [
+       {
+diff --git a/integration-tests/src/test/no-proving/functions.test.ts b/integration-tests/src/test/no-proving/functions.test.ts
+index b2cd53e3..b54c05bb 100644
+--- a/integration-tests/src/test/no-proving/functions.test.ts
++++ b/integration-tests/src/test/no-proving/functions.test.ts
+@@ -286,7 +286,9 @@ describe('Ledger API - functions', () => {
+       unshieldedMints: new Map(),
+       unshieldedInputs: new Map(),
+       unshieldedOutputs: new Map(),
+-      claimedUnshieldedSpends: new Map()
++      claimedUnshieldedSpends: new Map(),
++      claimedSpendAuthorizations: [],
++      claimedOutputCoverage: []
+     });
+     expect(transcripts.at(0)?.at(0)?.gas.computeTime).toBeGreaterThanOrEqual(1n);
+     expect(transcripts.at(1)?.at(0)?.program).toEqual([{ noop: { n: 1 } }]);
+@@ -299,7 +301,9 @@ describe('Ledger API - functions', () => {
+       unshieldedMints: new Map(),
+       unshieldedInputs: new Map(),
+       unshieldedOutputs: new Map(),
+-      claimedUnshieldedSpends: new Map()
++      claimedUnshieldedSpends: new Map(),
++      claimedSpendAuthorizations: [],
++      claimedOutputCoverage: []
+     });
+     expect(transcripts.at(1)?.at(0)?.gas.computeTime).toBeGreaterThanOrEqual(1n);
+   });
+diff --git a/integration-tests/src/test/utils/log-contract.ts b/integration-tests/src/test/utils/log-contract.ts
+index abc2b879..de22bfe9 100644
+--- a/integration-tests/src/test/utils/log-contract.ts
++++ b/integration-tests/src/test/utils/log-contract.ts
+@@ -38,7 +38,9 @@ const EMPTY_EFFECTS = {
+   unshieldedMints: new Map(),
+   unshieldedInputs: new Map(),
+   unshieldedOutputs: new Map(),
+-  claimedUnshieldedSpends: new Map()
++  claimedUnshieldedSpends: new Map(),
++  claimedSpendAuthorizations: [],
++  claimedOutputCoverage: []
+ };
+ 
+ const ENTRY_POINT = 'doLog';
+diff --git a/onchain-runtime-wasm/onchain-runtime-v5.d.ts b/onchain-runtime-wasm/onchain-runtime-v5.d.ts
+index 525d0234..1a71e4c3 100644
+--- a/onchain-runtime-wasm/onchain-runtime-v5.d.ts
++++ b/onchain-runtime-wasm/onchain-runtime-v5.d.ts
+@@ -399,6 +399,20 @@ export type Effects = {
+    * The unshielded UTXO outputs this contract expects to be present.
+    */
+   claimedUnshieldedSpends: Map<[TokenType, PublicAddress], bigint>,
++  /**
++   * Regulated ZSwap CSL: the policy bindings of the guarded shielded inputs
++   * this call authorizes (effects index 9). The ledger matches them
++   * one-to-one against the `policy` fields of the inputs in the call's
++   * logical segment.
++   */
++  claimedSpendAuthorizations: Fr[],
++  /**
++   * Regulated ZSwap CSL: the output commitments this call has checked
++   * (effects index 10). When a call claims anything under CSL, this must
++   * equal the full set of output and transient commitments of its logical
++   * segment.
++   */
++  claimedOutputCoverage: CoinCommitment[],
+ };
+ 
+ /**
+-- 
+2.43.0
+

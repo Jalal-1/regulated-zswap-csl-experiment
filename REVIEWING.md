@@ -208,6 +208,14 @@ write-up. For a reviewer, the things to verify:
   `zkir/src/zswap_spend_csl_v1_historical.rs` and never dispatched. Tests:
   `historical_v1_spend_proof_is_rejected_by_the_ledger` (full ledger path),
   `historical_v1_csl_proofs_do_not_verify_under_v2_key` (relation level).
+- **Reproducible evidence.** `.github/workflows/csl-proving.yml` (on the ledger branch) runs the
+  controls, the scenarios and the regression suite with real proofs on every push, after asserting
+  that `mock-verify` is absent from the resolved feature graph of every tested crate and after
+  filling the parameter cache from compiled artifacts whose hashes must match the sidecars compiled
+  into `midnight-zswap`. Check the run on the commit `MANIFEST.json` pins (linked from
+  `results/results.md`, "Continuous integration under revision 2") and its `csl-run-metadata`
+  artifact (toolchain, parameter and key hashes). `scripts/reproduce.sh` performs the same stages on
+  any machine and refuses to run against a different or locally modified commit unless told to.
 - **Test-only adversarial code.** `GatePermissive` (`zkir/src/csl_gate.rs`) and the historical
   relation are reachable only from tests and the test resolver; they are never embedded or dispatched
   on a production path. Confirm no key-location constant routes to them in `zkir/src/lib.rs`.
