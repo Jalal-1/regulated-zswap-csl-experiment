@@ -42,9 +42,9 @@
 ## Findings worth carrying into the design discussion
 
 - **Every spend needs derivation inputs.** With unconditional re-derivation, coins of random or
-  unknown-preimage types cannot be spent; two existing ledger tests (`micro-dao`,
-  `token_vault_shielded`) spend such coins and are expected to fail for that reason; whether they do
-  is recorded by the full ledger suite run in `results.md`, not assumed here. Wallets and indexers must
+  unknown-preimage types cannot be spent; no existing ledger test spends such a coin (the
+  two tests that spend contract-owned coins, `micro-dao` and `token_vault_shielded`, use the native
+  type, which is accepted under `Empty`), so the full ledger suite passes unchanged; see `results.md`. Wallets and indexers must
   resolve `(domain separator, minting address, rule)` for every contract-minted shielded coin.
 - **Native type.** The all-zero native type is special-cased under `Empty`; any other fixed types
   (if introduced) need the same treatment or a published derivation.

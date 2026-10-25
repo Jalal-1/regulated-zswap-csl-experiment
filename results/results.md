@@ -55,9 +55,43 @@ Observations recorded during the runs:
 
 Known consequences of the mandatory design, observed while building:
 
-- Every shielded spend now needs the token-type derivation inputs; coins of random
-  (underivable) types used by some existing ledger tests (`micro-dao`, `token_vault_shielded`)
-  can no longer be spent, which is the intended closure of the unguarded route and a
-  migration cost for wallets.
+- Every shielded spend now needs the token-type derivation inputs. No existing ledger test spends a
+  contract-minted shielded coin without them: the two tests that spend contract-owned coins
+  (`micro-dao`, `token_vault_shielded`) use the native all-zero type, which the relation accepts
+  under `Empty` without derivation inputs, and both pass in the full suite below. The fail-closed
+  behaviour for a coin of underivable type is shown by the zkir relation test only. The migration
+  cost for wallets (resolving the preimage of every contract-minted coin) stands.
 - The data provider still serves the legacy spend artifacts under `zswap/9/`; the ledger no
   longer uses them for spends, but their download verification keeps the legacy hash.
+
+## Full ledger suite
+
+`cargo test --release -p midnight-ledger-v10 --features proving --no-fail-fast -- --test-threads=1`,
+the complete package (library unit tests, every integration test binary, doc tests), run after the
+scenarios passed. Wall clock 39 minutes including compilation; log `stage4_full_ledger_tests`.
+
+| Target | Result |
+| --- | --- |
+| `src/lib.rs` unit tests | 98 passed |
+| `composable` | 3 passed, 31.5 s |
+| `contract_deployment` | 2 passed |
+| `csl_baseline` | 3 passed, 36.9 s |
+| `csl_gate_layout` | 1 passed |
+| `csl_regulated_transfer` | 9 passed, 226.7 s |
+| `dust` | 4 passed, 15.5 s |
+| `fallible` | 1 passed |
+| `intent` | 16 passed, 10.6 s |
+| `maintenance` | 2 passed |
+| `malicious_imbalance` | 2 passed, 38.6 s |
+| `micro-dao` | 1 passed, 2 ignored (ignored upstream), 122.7 s |
+| `noop-dos` | 1 passed |
+| `simple-merkle-tree` | 1 passed, 6.3 s |
+| `system_tx` | 5 passed, 1 ignored (ignored upstream) |
+| `token_vault_shielded` | 2 passed, 93.3 s |
+| `token_vault_unshielded` | 2 passed, 5.0 s |
+| `verify-proof` | 1 passed, 198.6 s |
+| `zkir-artifacts` | 1 passed |
+| doc tests | 0 |
+
+Every target passes; the expectation recorded earlier in this log that `micro-dao` and
+`token_vault_shielded` would fail was wrong, for the reason given above.

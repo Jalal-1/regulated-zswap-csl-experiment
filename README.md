@@ -55,7 +55,7 @@ Branch `main` (this branch):
 | `plan/review-of-v1.md`, `plan/plan_v1_to_v2.diff` | The source-verification review of revision 1 and the diff it produced. |
 | `design/stage1-design-decision.md` | The Stage 1 design decision (decisions D1 to D12, movement-path inventory P1 to P12) with section 6 "as built" notes. |
 | `design/next-steps.md` | Handoff for the next person: open items in order, and findings. |
-| `patches/000*-*.patch` | The ledger changes as a patch series (three commits) against `midnightntwrk/midnight-ledger` commit `fa995fa5791bc19112e97334a2d9265751c35fad` (branch `alexshielded/custom-spend-logic`, the Custom Spend Logic draft). Apply with `git am`. |
+| `patches/000*-*.patch` | The ledger changes as a patch series (four commits) against `midnightntwrk/midnight-ledger` commit `fa995fa5791bc19112e97334a2d9265751c35fad` (branch `alexshielded/custom-spend-logic`, the Custom Spend Logic draft). Apply with `git am`. |
 | `results/results.md` | The results log: every test run with its command, outcome and timing, and the disposal of every scenario. |
 | `results/*.txt` | Trimmed logs of every build and test run, including the failed iterations. |
 | `scripts/reproduce.sh` | Portable reproduction: clone, parameters (downloaded and hash-verified), zkir CLIs, test artifacts, unit suites, strict controls, scenarios. Stages can be run individually. |
@@ -63,7 +63,7 @@ Branch `main` (this branch):
 | `REVIEWING.md` | Reviewer's and pickup guide. |
 
 Branch `ledger-experiment`: the actual ledger branch, that is, the full history of
-`midnightntwrk/midnight-ledger` up to `fa995fa` plus the three experiment commits. It is the same
+`midnightntwrk/midnight-ledger` up to `fa995fa` plus the four experiment commits. It is the same
 content as the patch series; it exists so the branch can be checked out and built directly.
 
 ---
@@ -200,6 +200,7 @@ in `results/*.txt`.
 | 2 | `cargo test --release -p midnight-zkir --lib` | 10 passed |
 | 2 | `cargo test --release -p midnight-ledger-v10 --lib` | 91 passed (one failure found and fixed on the way; see Known issues) |
 | 3 | `cargo test --release -p midnight-ledger-v10 --features proving --test csl_regulated_transfer -- --test-threads=1` | 9 passed, 236 s |
+| 3 | `cargo test --release -p midnight-ledger-v10 --features proving --no-fail-fast -- --test-threads=1` (the complete package: library and every integration test) | all 22 targets pass: library 98, scenarios 9 again (226.7 s), baseline 3, `micro-dao` 1 (+2 ignored upstream), `token_vault_shielded` 2, `verify-proof` 1, the rest as upstream; 39 min wall clock |
 
 Scenario disposals (the ledger's actual error, copied from the log):
 
@@ -349,7 +350,7 @@ Each is stated so it is not mistaken for something it is not.
 | Gate's own token type written after deployment | The token type names the gate's address and the gate's state names the token type, so the type cell is written by the first `update_root`. | Breaks a circularity; it also means the gate's state is incomplete between deployment and the first root publication (no transfer can succeed then, which is the safe direction). |
 | Test-time key generation for the gate | The gate's proving and verifier keys are generated from the public parameters when the tests run and served by a test resolver; they are not checked in. | Deterministic for given parameters and relation; not a versioned artifact. |
 | Scripts with absolute paths | `scripts/` ran in one container and reference its scratch directory. | Records of what ran, not a portable reproduction tool; the reproduction steps below are the portable form. |
-| Existing tests updated to compile | `ledger/tests/micro-dao.rs` and `ledger/tests/token_vault_shielded.rs` gained a `None` derivation argument so the workspace compiles. | See Known issues for their run status. |
+| Existing tests updated to compile | `ledger/tests/micro-dao.rs` and `ledger/tests/token_vault_shielded.rs` gained a `None` derivation argument so the workspace compiles. | Both pass in the full suite: their coins are of the native type. |
 
 ---
 
@@ -369,7 +370,8 @@ Each is stated so it is not mistaken for something it is not.
   preimage `(domain separator, minting address, rule)` is unknown cannot be spent. This closes the
   unguarded route for guarded coins, and it is a real migration cost: wallets and indexers must
   resolve the preimage for every contract-minted shielded coin. The native all-zero type is
-  special-cased under `Empty`.
+  special-cased under `Empty`, which is why the existing ledger tests, which only spend native
+  coins, pass unchanged; the closure for an underivable type is shown by the zkir relation test.
 - **Public disclosures.** Per guarded input the chain learns that it is guarded, by which gate and
   entry point, and a Poseidon binding value. Per gate call: the gate address, the claimed binding
   and the claimed output commitments (already public in the offer). The whitelist contents, both
@@ -390,12 +392,13 @@ Each is stated so it is not mistaken for something it is not.
 
 ## Known issues in the implementation
 
-- **Other ledger integration tests.** Two existing tests (`micro-dao`, `token_vault_shielded`)
-  spend shielded coins of random token types. Under unconditional re-derivation such coins cannot
-  be spent, so these tests are expected to fail; the complete ledger package test suite was
-  started after the scenarios passed and its outcome is recorded in `results/results.md` under
-  "Full ledger suite" (if that section is absent, the run had not finished when this repository
-  was pushed, and the expectation above is unverified).
+- **The full ledger suite passes.** The complete `midnight-ledger-v10` package (library, every
+  integration test) passes under real proving; the table is in `results/results.md`, "Full ledger
+  suite". An earlier note in this work expected `micro-dao` and `token_vault_shielded` to fail
+  because they spend contract-owned coins; they use the native token type, which the relation
+  accepts under `Empty` without derivation inputs, so they pass. The consequence is that **no
+  existing ledger test spends a contract-minted shielded coin without its derivation**, and the
+  fail-closed behaviour for an underivable type rests on the zkir relation test alone.
 - **`test_resolver_resolves` was broken and fixed.** Replacing the embedded spend verifier key
   initially changed the download sidecar's hash as well, which broke verification of the legacy
   artifacts still served by the data provider. The sidecar was restored to the legacy hash and a

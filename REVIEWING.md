@@ -36,13 +36,13 @@ that shows it. "Untested" means the mechanism exists but no test exercises that 
 | V5 authorization belongs to this movement | The binding includes the nullifier; matching is keyed by logical segment, gate address and entry point | `coin-structure/src/custom_spend.rs` `csl_policy_binding`, `ledger/src/verify.rs` | Untested at the ledger level (T14, T15 not done) |
 | V6 atomicity | Matching per logical segment; `apply_section` already fails a segment as a whole | `ledger/src/verify.rs`, `ledger/src/semantics.rs` (unchanged) | Untested (T16 not done) |
 | V7 no alternate path | Legacy key rejected; transients have no `policy` field so a guarded transient's proof cannot verify; `GateCircuit` cannot be witnessed; contract owners cannot obtain a gate claim (leaves encode user keys only) | `zswap/static/spend.verifier`, `zswap/src/structure.rs`, `zswap_spend_csl.rs` | Legacy key: `legacy_relation_proofs_do_not_verify_under_csl_key`, `embedded_spend_verifier_key_is_the_csl_key`. Transients, contract owners, merges, mint, claim: untested |
-| V8 native invariants | Unchanged balancing, nullifier and commitment logic; the `Empty` rule keeps the 96-byte derivation and the native type is special-cased | `zswap`, `ledger` existing tests | `csl_baseline` (plain transfer accepted; corrupt proof and altered statement rejected), `malicious_imbalance`, the zswap suite |
+| V8 native invariants | Unchanged balancing, nullifier and commitment logic; the `Empty` rule keeps the 96-byte derivation and the native type is special-cased | `zswap`, `ledger` existing tests | `csl_baseline` (plain transfer accepted; corrupt proof and altered statement rejected), `malicious_imbalance`, the zswap suite, and the complete ledger package suite (all targets pass) |
 | V9 privacy | Only a Poseidon binding, the gate address and entry point are added per guarded input; the gate's claims are already-public commitments | D12 in the design document | Untested (T28 not done) |
 | V10 node | Nothing | | Not done |
 
 ## 3. The diff, file by file
 
-Base: `fa995fa5791bc19112e97334a2d9265751c35fad`. Three commits, 54 files, about 4,300 lines added
+Base: `fa995fa5791bc19112e97334a2d9265751c35fad`. Four commits, 54 files, about 4,300 lines added
 (1,600 of them tests, 450 docs). Read in this order.
 
 ### Token derivation and binding (the ledger-side constants the circuit must match)
@@ -102,7 +102,7 @@ Base: `fa995fa5791bc19112e97334a2d9265751c35fad`. Three commits, 54 files, about
 | `ledger/tests/csl_gate_layout.rs` (+96) | The op-encoding probe | Prints only. |
 | `ledger/tests/csl_common.rs` (+688) | Resolver serving the gate keys, `Party`, `Gate`, `deploy_gate`, `update_root_tx`, `publish_root`, issuance, `TransferOptions` and `regulated_transfer_tx`, `pay_exact_dust_fee`, `pay_and_prove`, `Rejection`/`attempt`/`apply_rejected`, `fixture` | Issuance is harness state injection (`rewards_shielded`), not a mint. `publish_root` applies with `enforce_balancing = false` (the admin pays no fee in the fixture); every transfer is applied under default strictness. The fee-intent TTL is ten minutes. |
 | `ledger/tests/csl_regulated_transfer.rs` (+244) | T01, T02/T12, T04, T06, T07, T08, T13a, T13b, T24 | Each negative test asserts the specific rejection variant and that Alice's nullifier is absent afterwards. |
-| `ledger/tests/micro-dao.rs`, `token_vault_shielded.rs` | Signature changes only (`None` derivation) | See README "Known issues" for their run status. |
+| `ledger/tests/micro-dao.rs`, `token_vault_shielded.rs` | Signature changes only (`None` derivation) | Both pass in the full suite; their coins are of the native type, which the relation accepts under `Empty` without derivation inputs. |
 
 ## 4. Questions a reviewer should answer
 

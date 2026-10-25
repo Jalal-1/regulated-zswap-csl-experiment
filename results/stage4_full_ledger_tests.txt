@@ -1,0 +1,245 @@
+     Running unittests src/lib.rs (target/release/deps/midnight_ledger_v10-ef1c51424e75162e)
+running 98 tests
+test annotation::tag_enforcement_test_NightAnn ... ok
+test dust::tag_enforcement_test_DustActions ... ok
+test dust::tag_enforcement_test_DustActionsSigningEnvelope ... ok
+test dust::tag_enforcement_test_DustCommitment ... ok
+test dust::tag_enforcement_test_DustGenerationInfo ... ok
+test dust::tag_enforcement_test_DustGenerationState ... ok
+test dust::tag_enforcement_test_DustGenerationUniquenessInfo ... ok
+test dust::tag_enforcement_test_DustLocalState ... ok
+test dust::tag_enforcement_test_DustNullifier ... ok
+test dust::tag_enforcement_test_DustOutput ... ok
+test dust::tag_enforcement_test_DustParameters ... ok
+test dust::tag_enforcement_test_DustPreProjection ... ok
+test dust::tag_enforcement_test_DustPublicKey ... ok
+test dust::tag_enforcement_test_DustRegistration ... ok
+test dust::tag_enforcement_test_DustRegistrationSigningEnvelope ... ok
+test dust::tag_enforcement_test_DustSecretKey ... ok
+test dust::tag_enforcement_test_DustSpend ... ok
+test dust::tag_enforcement_test_DustState ... ok
+test dust::tag_enforcement_test_DustUtxoState ... ok
+test dust::tag_enforcement_test_DustWalletUtxoState ... ok
+test dust::tag_enforcement_test_InitialNonce ... ok
+test dust::tag_enforcement_test_QualifiedDustOutput ... ok
+test dust::tests::encryption_key_derivation_matches_test_vectors ... ok
+test dust::tests::test_proof_size ... ok
+test events::tag_enforcement_test_Event ... ok
+test events::tag_enforcement_test_EventDetails ... ok
+test events::tag_enforcement_test_EventSource ... ok
+test events::tag_enforcement_test_ZswapPreimageEvidence ... ok
+test prove::tests::a_mock_proof_serializes_to_the_size_it_stands_in_for ... ok
+test prove::tests::test_mock_proving ... ok
+test prove::tests::test_mock_proving_tokio ... ok
+test prove::tests::test_resolver_resolves ... ok
+test semantics::tests::bridge_claim_not_enough_available ... ok
+test semantics::tests::bridge_transfer_passes_invariant ... ok
+test semantics::tests::bridge_transfer_sub_minimum_passes_invariant ... ok
+test semantics::tests::insert_updates_annotation ... ok
+test semantics::tests::multiple_inserts_accumulate ... ok
+test semantics::tests::remove_one_of_many ... ok
+test semantics::tests::remove_updates_annotation ... ok
+test semantics::tests::rewards_claim_not_enough_available ... ok
+test semantics::tests::simple_bridge_claim ... ok
+test semantics::tests::simple_rewards_claim ... ok
+test structure::tag_enforcement_test_CNightGeneratesDustActionType ... ok
+test structure::tag_enforcement_test_CNightGeneratesDustEvent ... ok
+test structure::tag_enforcement_test_CardanoBridge ... ok
+test structure::tag_enforcement_test_ClaimKind ... ok
+test structure::tag_enforcement_test_ClaimRewardsTransaction ... ok
+test structure::tag_enforcement_test_ContractAction ... ok
+test structure::tag_enforcement_test_ContractCall ... ok
+test structure::tag_enforcement_test_ContractDeploy ... ok
+test structure::tag_enforcement_test_ContractOperationVersion ... ok
+test structure::tag_enforcement_test_ContractOperationVersionedVerifierKey ... ok
+test structure::tag_enforcement_test_InnerIntentPedersenEnvelope ... ok
+test structure::tag_enforcement_test_InnerIntentSigningEnvelope ... ok
+test structure::tag_enforcement_test_Intent ... ok
+test structure::tag_enforcement_test_IntentHash ... ok
+test structure::tag_enforcement_test_IntentPedersenEnvelope ... ok
+test structure::tag_enforcement_test_IntentSigningEnvelope ... ok
+test structure::tag_enforcement_test_LedgerParameters ... ok
+test structure::tag_enforcement_test_LedgerState ... ok
+test structure::tag_enforcement_test_MaintenanceUpdate ... ok
+test structure::tag_enforcement_test_MaintenanceUpdateSigningEnvelope ... ok
+test structure::tag_enforcement_test_OutputInstructionShielded ... ok
+test structure::tag_enforcement_test_OutputInstructionUnshielded ... ok
+test structure::tag_enforcement_test_ProofPreimageVersioned ... ok
+test structure::tag_enforcement_test_ProofVersioned ... ok
+test structure::tag_enforcement_test_ReplayProtectionState ... ok
+test structure::tag_enforcement_test_Signature ... ok
+test structure::tag_enforcement_test_SignatureVerifyingKey ... ok
+test structure::tag_enforcement_test_SignaturesValue ... ok
+test structure::tag_enforcement_test_SigningKey ... ok
+test structure::tag_enforcement_test_SingleUpdate ... ok
+test structure::tag_enforcement_test_StandardTransaction ... ok
+test structure::tag_enforcement_test_SystemTransaction ... ok
+test structure::tag_enforcement_test_Transaction ... ok
+test structure::tag_enforcement_test_TransactionCostModel ... ok
+test structure::tag_enforcement_test_TransactionHash ... ok
+test structure::tag_enforcement_test_TransactionIdentifier ... ok
+test structure::tag_enforcement_test_TransactionLimits ... ok
+test structure::tag_enforcement_test_UnshieldedOffer ... ok
+test structure::tag_enforcement_test_UnshieldedOfferSigningEnvelope ... ok
+test structure::tag_enforcement_test_Utxo ... ok
+test structure::tag_enforcement_test_UtxoMeta ... ok
+test structure::tag_enforcement_test_UtxoOutput ... ok
+test structure::tag_enforcement_test_UtxoSpend ... ok
+test structure::tag_enforcement_test_UtxoState ... ok
+test structure::tests::test_genesis_state ... ok
+test structure::tests::test_max_price_adjustment ... ok
+test structure::tests::test_state_serialized ... ok
+test verify::sparse_unshielded_signature_tests::dense_signature_array_round_trips_and_validates ... ok
+test verify::sparse_unshielded_signature_tests::malformed_sparse_signature_array_rejected_on_deserialize ... ok
+test verify::sparse_unshielded_signature_tests::sparse_signature_offer_rejected_by_well_formed ... ok
+test verify::tests::causality_check_failure ... ok
+test verify::tests::relate_nodes_same_address_ordering ... ok
+test verify::tests::sequencing_check_failure ... ok
+test verify::tests::sequencing_context_check_failure_fallible_in_guaranteed ... ok
+test verify::tests::sequencing_context_check_failure_guaranteed_in_fallible ... ok
+test verify::tests::sequencing_correlation_check_failure ... ok
+test result: ok. 98 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.27s
+     Running tests/composable.rs (target/release/deps/composable-699df86ebaad487e)
+running 3 tests
+test composable ... ok
+test composable_funded ... ok
+test guaranteed_in_fallible ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.53s
+     Running tests/contract_deployment.rs (target/release/deps/contract_deployment-03918f1e22928b86)
+running 2 tests
+test non_zero_contract_deploy_balance ... ok
+test zero_contract_deploy_balance ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/csl_baseline.rs (target/release/deps/csl_baseline-7f3baea8cbb7e10b)
+running 3 tests
+test csl_baseline_altered_statement_is_rejected ... ok
+test csl_baseline_corrupted_spend_proof_is_rejected ... ok
+test csl_baseline_plain_transfer_is_accepted ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 36.87s
+     Running tests/csl_common.rs (target/release/deps/csl_common-4d60efbb9dc357c8)
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/csl_gate_layout.rs (target/release/deps/csl_gate_layout-9d3be98eb6c48bb2)
+running 1 test
+test print_gate_program_layout ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/csl_regulated_transfer.rs (target/release/deps/csl_regulated_transfer-1e57ae801ddcf938)
+running 9 tests
+test t01_approved_to_approved_is_accepted ... ok
+test t02_revoked_sender_cannot_move_the_coin ... ok
+test t04_unapproved_recipient_cannot_be_proven ... ok
+test t06_omitted_gate_call_is_rejected ... ok
+test t07_substituted_sender_is_rejected ... ok
+test t08_output_to_unchecked_recipient_is_rejected ... ok
+test t13_attacker_chosen_root_fails_at_replay ... ok
+test t13b_forged_root_in_witness_is_an_invalid_proof ... ok
+test t24_wrong_admin_secret_cannot_update_root ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 226.68s
+     Running tests/dust.rs (target/release/deps/dust-009084d74f94a468)
+running 4 tests
+test test_cnight_dust_payment ... ok
+test test_cycle_transfers ... ok
+test test_registration_dust_payment ... [2m2026-10-25T18:10:51.547647Z[0m [32m INFO[0m [2mmidnight_ledger_v10::ledger_tracing[0m[2m:[0m Welcome to ledger v1.0.0!
+[2m2026-10-25T18:10:51.551011Z[0m [34mDEBUG[0m [1mwell_formed[0m[1m{[0m[3mstrictness[0m[2m=[0mWellFormedStrictness { enforce_balancing: true, verify_native_proofs: true, verify_contract_proofs: true, verify_signatures: true, enforce_limits: true, proof_verification_mode: Real } [3mtblock[0m[2m=[0mTimestamp(604825) [3mself[0m[2m=[0mafad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec [3mref_state[0m[2m=[0mc9bdfb3cc2616f40799919e5796c2ce3e153099f1371b5666783437e3b2ef6be[1m}[0m[2m:[0m [2mmidnight_ledger_v10::verify[0m[2m:[0m transaction well-formed
+[2m2026-10-25T18:10:51.554414Z[0m [35mTRACE[0m [1mapply[0m[1m{[0m[3mtx[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec)[1m}[0m[2m:[0m[1mapply_guaranteed_only[0m[1m{[0m[3mtx[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec)[1m}[0m[2m:[0m[1mapply_section[0m[1m{[0m[3mtransaction_hash[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec) [3mfees[0m[2m=[0m478749349920001 [3msegment[0m[2m=[0m0[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m transaction phase 0 successfully applied
+[2m2026-10-25T18:10:51.554480Z[0m [34mDEBUG[0m [1mapply[0m[1m{[0m[3mtx[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec)[1m}[0m[2m:[0m[1mapply_guaranteed_only[0m[1m{[0m[3mtx[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec)[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m state transition: c9bdfb3cc2616f40799919e5796c2ce3e153099f1371b5666783437e3b2ef6be => face710aabb25b59a3194567d090f7daa072d99fd477f017e27e26a41b194a41 [transaction TransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec); guaranteed]
+[2m2026-10-25T18:10:51.554542Z[0m [35mTRACE[0m [1mapply[0m[1m{[0m[3mtx[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec)[1m}[0m[2m:[0m[1mapply_section[0m[1m{[0m[3mtransaction_hash[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec) [3mfees[0m[2m=[0m478749349920001 [3msegment[0m[2m=[0m1[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m transaction phase 1 successfully applied
+[2m2026-10-25T18:10:51.554568Z[0m [34mDEBUG[0m [1mapply[0m[1m{[0m[3mtx[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec)[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m state transition: face710aabb25b59a3194567d090f7daa072d99fd477f017e27e26a41b194a41 => face710aabb25b59a3194567d090f7daa072d99fd477f017e27e26a41b194a41 [transaction TransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec); fallible]
+[2m2026-10-25T18:10:51.554577Z[0m [34mDEBUG[0m [1mapply[0m[1m{[0m[3mtx[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec)[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m transaction result: Success
+[2m2026-10-25T18:10:51.554579Z[0m [35mTRACE[0m [1mapply[0m[1m{[0m[3mtx[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec)[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m transaction details [3mtx[0m[2m=[0mVerifiedTransaction { inner: StandardTransaction { network_id: "local-test", intents: {1: Intent { guaranteed_unshielded_offer: Some(UnshieldedOffer { inputs: [UtxoSpend { value: 1000000, owner: Schnorr(<signature verifying key>), type_: UnshieldedTokenType(0000000000000000000000000000000000000000000000000000000000000000), intent_hash: IntentHash(3d80aa6add848f5ca9651d227ac9543c712ee6d31dd470558cf7e25690fa1eb8), output_no: 0 }], outputs: [UtxoOutput { value: 1000000, owner: UserAddress(f7b63fd98d9ea56ab00c29b5c9e8deaedc126d054d92d9b7bdbf69e9678d3bbe), type_: UnshieldedTokenType(0000000000000000000000000000000000000000000000000000000000000000) }], signatures: [0 signatures] }), fallible_unshielded_offer: None, actions: [], ttl: Timestamp(604825), dust_actions: Some(DustActions { spends: [], registrations: [DustRegistration { night_key: Schnorr(<signature verifying key>), dust_address: Some(DustPublicKey(8cc2f3fa2e082dac3080bc05e9056caca0784fa5ee32218df016dc6cba44982e)), allow_fee_payment: 5000000000000000, signature: Some(()) }], ctime: Timestamp(604825) }), binding_commitment: <binding commitment> }}, guaranteed_coins: None, fallible_coins: {}, binding_randomness: 4d923fec767b66714e009f5b5e68372eb65fe53c9d5f6866f43823de204d7109 }, hash: TransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec), fees: 478749349920001 }
+[2m2026-10-25T18:10:51.557677Z[0m [35mTRACE[0m [1mapply[0m[1m{[0m[3mtx[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec)[1m}[0m[2m:[0m[1mapply_guaranteed_only[0m[1m{[0m[3mtx[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec)[1m}[0m[2m:[0m[1mapply_section[0m[1m{[0m[3mtransaction_hash[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec) [3mfees[0m[2m=[0m478749349920001 [3msegment[0m[2m=[0m0[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m transaction phase 0 successfully applied
+[2m2026-10-25T18:10:51.557907Z[0m [34mDEBUG[0m [1mapply[0m[1m{[0m[3mtx[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec)[1m}[0m[2m:[0m[1mapply_guaranteed_only[0m[1m{[0m[3mtx[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec)[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m state transition: c9bdfb3cc2616f40799919e5796c2ce3e153099f1371b5666783437e3b2ef6be => face710aabb25b59a3194567d090f7daa072d99fd477f017e27e26a41b194a41 [transaction TransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec); guaranteed]
+[2m2026-10-25T18:10:51.557988Z[0m [35mTRACE[0m [1mapply[0m[1m{[0m[3mtx[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec)[1m}[0m[2m:[0m[1mapply_section[0m[1m{[0m[3mtransaction_hash[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec) [3mfees[0m[2m=[0m478749349920001 [3msegment[0m[2m=[0m1[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m transaction phase 1 successfully applied
+[2m2026-10-25T18:10:51.558012Z[0m [34mDEBUG[0m [1mapply[0m[1m{[0m[3mtx[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec)[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m state transition: face710aabb25b59a3194567d090f7daa072d99fd477f017e27e26a41b194a41 => face710aabb25b59a3194567d090f7daa072d99fd477f017e27e26a41b194a41 [transaction TransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec); fallible]
+[2m2026-10-25T18:10:51.558022Z[0m [34mDEBUG[0m [1mapply[0m[1m{[0m[3mtx[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec)[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m transaction result: Success
+[2m2026-10-25T18:10:51.558024Z[0m [35mTRACE[0m [1mapply[0m[1m{[0m[3mtx[0m[2m=[0mTransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec)[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m transaction details [3mtx[0m[2m=[0mVerifiedTransaction { inner: StandardTransaction { network_id: "local-test", intents: {1: Intent { guaranteed_unshielded_offer: Some(UnshieldedOffer { inputs: [UtxoSpend { value: 1000000, owner: Schnorr(<signature verifying key>), type_: UnshieldedTokenType(0000000000000000000000000000000000000000000000000000000000000000), intent_hash: IntentHash(3d80aa6add848f5ca9651d227ac9543c712ee6d31dd470558cf7e25690fa1eb8), output_no: 0 }], outputs: [UtxoOutput { value: 1000000, owner: UserAddress(f7b63fd98d9ea56ab00c29b5c9e8deaedc126d054d92d9b7bdbf69e9678d3bbe), type_: UnshieldedTokenType(0000000000000000000000000000000000000000000000000000000000000000) }], signatures: [0 signatures] }), fallible_unshielded_offer: None, actions: [], ttl: Timestamp(604825), dust_actions: Some(DustActions { spends: [], registrations: [DustRegistration { night_key: Schnorr(<signature verifying key>), dust_address: Some(DustPublicKey(8cc2f3fa2e082dac3080bc05e9056caca0784fa5ee32218df016dc6cba44982e)), allow_fee_payment: 5000000000000000, signature: Some(()) }], ctime: Timestamp(604825) }), binding_commitment: <binding commitment> }}, guaranteed_coins: None, fallible_coins: {}, binding_randomness: 4d923fec767b66714e009f5b5e68372eb65fe53c9d5f6866f43823de204d7109 }, hash: TransactionHash(afad06bf947027fb3174dbb279e46146fca8bc69493127e175800270c68fd6ec), fees: 478749349920001 }
+[2m2026-10-25T18:10:51.575824Z[0m [34mDEBUG[0m [1mpost_block_update[0m[1m{[0m[3mtblock[0m[2m=[0mTimestamp(604835) [3mdetailed_block_fullness[0m[2m=[0mNormalizedCost { read_time: FixedPoint(0), compute_time: FixedPoint(0), block_usage: FixedPoint(0), bytes_written: FixedPoint(0), bytes_churned: FixedPoint(0) } [3moverall_block_fullness[0m[2m=[0mFixedPoint(0.5)[1m}[0m[2m:[0m[1mapply_post_block_update[0m[1m{[0m[3mtblock[0m[2m=[0mTimestamp(604835) [3mdetailed_block_fullness[0m[2m=[0mNormalizedCost { read_time: FixedPoint(0), compute_time: FixedPoint(0), block_usage: FixedPoint(0), bytes_written: FixedPoint(0), bytes_churned: FixedPoint(0) } [3moverall_block_fullness[0m[2m=[0mFixedPoint(0.5)[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m state transition: face710aabb25b59a3194567d090f7daa072d99fd477f017e27e26a41b194a41 => 86917bcb6c4c3f4fd0df856f44fe0a44b6396ea0514103f2b80fc9c29e86d0b0 [post block update]
+ok
+test test_replay_events_associative_for_non_owning_viewer ... [2m2026-10-25T18:10:51.578505Z[0m [34mDEBUG[0m [1mapply_system_tx[0m[1m{[0m[3mtblock[0m[2m=[0mTimestamp(0) [3mtx[0m[2m=[0m83f7a0739ff0c09d7faa235bc3d5a5347d25ec35452c49b32dc2502e57f8769f[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m state transition: 447c24e5bdf6020fd3f305fc36f9f6e439c8f410fdb26dcfdeba7d37a9417ce5 => 2d678d7fae84c0df6e902e7b0de3c758c5d2895f699a367b11531ddcf682ad76 [system transaction 83f7a0739ff0c09d7faa235bc3d5a5347d25ec35452c49b32dc2502e57f8769f]
+[2m2026-10-25T18:10:51.578528Z[0m [35mTRACE[0m [1mapply_system_tx[0m[1m{[0m[3mtblock[0m[2m=[0mTimestamp(0) [3mtx[0m[2m=[0m83f7a0739ff0c09d7faa235bc3d5a5347d25ec35452c49b32dc2502e57f8769f[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m system transaction details [3mtx[0m[2m=[0mCNightGeneratesDustUpdate { events: [CNightGeneratesDustEvent { value: 10000000, owner: DustPublicKey(8cc2f3fa2e082dac3080bc05e9056caca0784fa5ee32218df016dc6cba44982e), time: Timestamp(0), action: Create, nonce: InitialNonce(a71796337d143753050b168e052025f248f44cb72812f8073a13199efbd5fe36) }] }
+[2m2026-10-25T18:10:51.587862Z[0m [34mDEBUG[0m [1mpost_block_update[0m[1m{[0m[3mtblock[0m[2m=[0mTimestamp(604815) [3mdetailed_block_fullness[0m[2m=[0mNormalizedCost { read_time: FixedPoint(0), compute_time: FixedPoint(0), block_usage: FixedPoint(0), bytes_written: FixedPoint(0), bytes_churned: FixedPoint(0) } [3moverall_block_fullness[0m[2m=[0mFixedPoint(0.5)[1m}[0m[2m:[0m[1mapply_post_block_update[0m[1m{[0m[3mtblock[0m[2m=[0mTimestamp(604815) [3mdetailed_block_fullness[0m[2m=[0mNormalizedCost { read_time: FixedPoint(0), compute_time: FixedPoint(0), block_usage: FixedPoint(0), bytes_written: FixedPoint(0), bytes_churned: FixedPoint(0) } [3moverall_block_fullness[0m[2m=[0mFixedPoint(0.5)[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m state transition: 2d678d7fae84c0df6e902e7b0de3c758c5d2895f699a367b11531ddcf682ad76 => 5954af0b7cd4c97380168edfc427eaa43700c845cd10bdcfd3c6d8cfecac7870 [post block update]
+[2m2026-10-25T18:10:51.593991Z[0m [34mDEBUG[0m [1mapply_system_tx[0m[1m{[0m[3mtblock[0m[2m=[0mTimestamp(604815) [3mtx[0m[2m=[0mbcb95019b9326effb091c21d100048382f1b44aea71df04a6b570a5c8a943246[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m state transition: 5954af0b7cd4c97380168edfc427eaa43700c845cd10bdcfd3c6d8cfecac7870 => b3d49cc8fad29c663db1e708d151f3bd1d09cd82fd66d55e27d070f001cd9716 [system transaction bcb95019b9326effb091c21d100048382f1b44aea71df04a6b570a5c8a943246]
+[2m2026-10-25T18:10:51.594038Z[0m [35mTRACE[0m [1mapply_system_tx[0m[1m{[0m[3mtblock[0m[2m=[0mTimestamp(604815) [3mtx[0m[2m=[0mbcb95019b9326effb091c21d100048382f1b44aea71df04a6b570a5c8a943246[1m}[0m[2m:[0m [2mmidnight_ledger_v10::semantics[0m[2m:[0m system transaction details [3mtx[0m[2m=[0mCNightGeneratesDustUpdate { events: [CNightGeneratesDustEvent { value: 10000000, owner: DustPublicKey(8cc2f3fa2e082dac3080bc05e9056caca0784fa5ee32218df016dc6cba44982e), time: Timestamp(604815), action: Destroy, nonce: InitialNonce(a71796337d143753050b168e052025f248f44cb72812f8073a13199efbd5fe36) }] }
+ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.47s
+     Running tests/fallible.rs (target/release/deps/fallible-f95f9d9e06d717a8)
+running 1 test
+test fallible ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+     Running tests/intent.rs (target/release/deps/intent-b5db8c7cf84fd871)
+running 16 tests
+test apply ... ok
+test apply_duplicate_failure ... ok
+test apply_expired_ttl_failure ... ok
+test apply_ttl_in_future_failure ... ok
+test balanced_utxos_1_intent ... ok
+test causality_check_sanity_check ... ok
+test imbalanced_utxos_1_intent ... ok
+test imbalanced_utxos_1_intent_fallible ... ok
+test intents_cannot_balance_across_segments ... ok
+test merge_failure_segment_clash ... ok
+test post_block_update ... ok
+test unsealed_no_signature_check ... ok
+test well_formed ... ok
+test well_formed_failure_segment_guaranteed ... ok
+test well_formed_sign_wrong_key ... ok
+test well_formed_signature_verification_failure_all ... ok
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.59s
+     Running tests/maintenance.rs (target/release/deps/maintenance-c25ed8aaa1ed0e54)
+running 2 tests
+test maintenance ... ok
+test schnorr_validity ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running tests/malicious_imbalance.rs (target/release/deps/malicious_imbalance-8aadbd3c32441275)
+running 2 tests
+test malicious_imbalance ... ok
+test malicious_imbalance_duplicate_nullifier ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 38.55s
+     Running tests/micro-dao.rs (target/release/deps/micro_dao-a5a58fcab6476cee)
+running 3 tests
+test micro_dao ... ok
+test micro_dao_capture ... ignored, run for specifically profiling node behaviour
+test micro_dao_replay ... ignored, run for specifically profiling node behaviour
+test result: ok. 1 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 122.73s
+     Running tests/noop-dos.rs (target/release/deps/noop_dos-a2828541e30a2974)
+running 1 test
+test noop_dos ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+     Running tests/simple-merkle-tree.rs (target/release/deps/simple_merkle_tree-90b58b5bebd065a8)
+running 1 test
+test simple_merkle_tree ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.32s
+     Running tests/system_tx.rs (target/release/deps/system_tx-30607bd11746cf93)
+running 6 tests
+test system_tx_pay_from_shielded ... ignored, disabled due to treasury payments being disabled
+test system_tx_pay_from_unshielded ... ok
+test system_tx_unlock_to_reserve ... ok
+test system_tx_unlock_to_reserve_insufficient_locked_pool ... ok
+test system_tx_unlock_to_treasury ... ok
+test system_tx_unlock_to_treasury_insufficient_locked_pool ... ok
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/token_vault_common.rs (target/release/deps/token_vault_common-d6363b421a1db6b4)
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/token_vault_shielded.rs (target/release/deps/token_vault_shielded-a257706e59213362)
+running 2 tests
+test test_deploy_only ... ok
+test test_shielded_full_lifecycle ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 93.25s
+     Running tests/token_vault_unshielded.rs (target/release/deps/token_vault_unshielded-2b18769d72f5ec06)
+running 2 tests
+test test_unshielded_contract_deposit ... ok
+test test_unshielded_contract_withdraw ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.04s
+     Running tests/verify-proof.rs (target/release/deps/verify_proof-50f1c034863baf86)
+running 1 test
+test contract_call_verifying_an_inner_proof ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 198.63s
+     Running tests/zkir-artifacts.rs (target/release/deps/zkir_artifacts-1d52ffd175435632)
+running 1 test
+test static_zkir_artifacts_decode ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+   Doc-tests midnight_ledger_v10
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+EXIT=0
