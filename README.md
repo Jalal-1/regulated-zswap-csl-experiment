@@ -18,6 +18,11 @@ that omits or misstates the gate call. Approved transfers still work. Everything
 (change outputs, transients, contract owners, mint and burn routes, node integration, measurements)
 was **not** done; see "What was not done".
 
+**Start here.** `REVIEWING.md` is the reviewer's guide: reading order, the plan's validation
+properties mapped to code and tests, a file-by-file map of the diff with what to check, the open
+questions, and how to run and extend the work. `scripts/reproduce.sh` reproduces every run from a
+clean machine (no Nix needed). The ledger code itself is on the `ledger-experiment` branch.
+
 The ledger changes were pushed first, by mistake, to a branch of an unrelated repository
 (`Jalal-1/wea-japan-pos-poc`, branch `claude/exciting-carson-rz5qr5`). This repository is the
 canonical home; the content is identical.
@@ -53,7 +58,9 @@ Branch `main` (this branch):
 | `patches/000*-*.patch` | The ledger changes as a patch series (three commits) against `midnightntwrk/midnight-ledger` commit `fa995fa5791bc19112e97334a2d9265751c35fad` (branch `alexshielded/custom-spend-logic`, the Custom Spend Logic draft). Apply with `git am`. |
 | `results/results.md` | The results log: every test run with its command, outcome and timing, and the disposal of every scenario. |
 | `results/*.txt` | Trimmed logs of every build and test run, including the failed iterations. |
-| `scripts/` | The shell scripts that ran each stage, and the Python scripts that applied the larger edits. They contain absolute paths from the container they ran in and are kept as a record, not as a portable tool. |
+| `scripts/reproduce.sh` | Portable reproduction: clone, parameters (downloaded and hash-verified), zkir CLIs, test artifacts, unit suites, strict controls, scenarios. Stages can be run individually. |
+| `scripts/stage*_chain*.sh`, `scripts/*.py`, `scripts/publish.sh` | The scripts that actually ran each stage in the experiment's container, and the Python scripts that applied the larger edits. They contain absolute paths from that container and are kept as a record. |
+| `REVIEWING.md` | Reviewer's and pickup guide. |
 
 Branch `ledger-experiment`: the actual ledger branch, that is, the full history of
 `midnightntwrk/midnight-ledger` up to `fa995fa` plus the three experiment commits. It is the same
@@ -434,6 +441,7 @@ Each is stated so it is not mistaken for something it is not.
    cargo test --release -p midnight-ledger-v10 --features proving --test csl_regulated_transfer -- --nocapture --test-threads=1
    ```
    The scenarios print each rejection as it happens; expect about four minutes on four cores.
+   `scripts/reproduce.sh` runs steps 1 to 6 (it also downloads and verifies the parameters).
 
 ---
 
