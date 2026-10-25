@@ -1,0 +1,29 @@
+From cf1b217426df91cc81068396a01b80ffa02b9ca1 Mon Sep 17 00:00:00 2001
+From: Jalal Hannan <jalal.hannan@midnight.foundation>
+Date: Sun, 25 Oct 2026 17:47:58 +0000
+Subject: [PATCH 3/3] Handoff doc: state the expected failure of two existing
+ tests as unverified
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Q9CJgdhDhwqKR5eCeFM2VG
+---
+ docs/experiments/regulated-zswap-csl/next-steps.md | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/docs/experiments/regulated-zswap-csl/next-steps.md b/docs/experiments/regulated-zswap-csl/next-steps.md
+index 96bcdbd9..dfb8b5b7 100644
+--- a/docs/experiments/regulated-zswap-csl/next-steps.md
++++ b/docs/experiments/regulated-zswap-csl/next-steps.md
+@@ -43,7 +43,8 @@
+ 
+ - **Every spend needs derivation inputs.** With unconditional re-derivation, coins of random or
+   unknown-preimage types cannot be spent; two existing ledger tests (`micro-dao`,
+-  `token_vault_shielded`) spend such coins and now fail for that reason. Wallets and indexers must
++  `token_vault_shielded`) spend such coins and are expected to fail for that reason; whether they do
++  is recorded by the full ledger suite run in `results.md`, not assumed here. Wallets and indexers must
+   resolve `(domain separator, minting address, rule)` for every contract-minted shielded coin.
+ - **Native type.** The all-zero native type is special-cased under `Empty`; any other fixed types
+   (if introduced) need the same treatment or a published derivation.
+-- 
+2.43.0
+

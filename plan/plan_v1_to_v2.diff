@@ -1,0 +1,251 @@
+--- /tmp/claude-0/-home-user-wea-japan-pos-poc/8fb10d81-7d79-5e0b-88f5-274972519579/scratchpad/plan_v1_original.md	2026-10-25 15:40:24.626025403 +0000
++++ /tmp/claude-0/-home-user-wea-japan-pos-poc/8fb10d81-7d79-5e0b-88f5-274972519579/scratchpad/regulated_zswap_csl_experiment_plan_v2.md	2026-10-25 15:40:24.713799570 +0000
+@@ -1,13 +1,26 @@
+ # Regulated ZSwap CSL Experiment Plan
+ 
+-**Implementation plan and coding agent handoff — 25 October 2026**
++**Implementation plan and coding agent handoff — 25 October 2026, revision 2**
++
++*Revision 2 incorporates a source-verification review of the pinned ledger, node and proposal revisions. Decisions taken after that review are marked **Decision**; items left to the coding agent are marked **Open**.*
+ 
+ We want to create an experimental regulated member of the native ZSwap token family whose transfer rules remain mandatory after the token leaves the issuer and enters a self-custody wallet. Possession of the spending key must remain necessary, but must no longer be sufficient to move this asset.
+ 
+-The first rule is deliberately simple: the actual sender and every actual recipient must be on Monument’s current whitelist. One CSL invocation may check both sides. The experiment should establish where that invocation belongs, how it is authenticated, and what changes Midnight’s circuits, ledger and node require.
++The first rule is deliberately simple: the actual sender and every actual recipient must be on the current whitelist maintained by Monument, the issuer and approval administrator of the experimental asset. One Custom Spend Logic (CSL) invocation may check both sides. The experiment should establish where that invocation belongs, how it is authenticated, and what changes Midnight’s circuits, ledger and node require.
+ 
+ This is a protocol experiment. Its result must be evidence from real proofs and ledger validation. The existing CSL work is a starting point; feasibility and end-to-end enforcement remain to be demonstrated.
+ 
++**Standing decisions from the revision 2 review**
++
++| Topic | Status |
++| --- | --- |
++| Design inputs | **Decision:** the binding and gate design is derived from first principles against the pinned sources. The CSL draft and the MPS documents listed under Reference material are the only external design inputs; no other proposal is a dependency. |
++| Ledger base | **Decision:** the pinned ledger 10 branch is the base. Its recursion instructions are an available primitive, not a dependency. |
++| Production circuit pipeline | **Decision (recommended; confirm or override):** promote the hand-written zk-stdlib spend relation to the production path in Stage 0. See Starting implementation and known gaps. |
++| Recipient coverage shape | **Open:** marked outputs or segment-wide coverage, decided in Stage 1 with the privacy delta recorded. |
++| Whitelist structure and freshness | **Open:** decided in Stage 1. The known traps are listed under Keep the whitelist simple. |
++| Node integration | **Decision:** resolved in Stage 5 with an intermediate host-API milestone. It does not gate Stages 1 to 4. |
++
+ ## Objective and decisive scenario
+ 
+ Alice holds a regulated ZSwap coin in her own wallet. She controls its spending and viewing keys. Alice is absent from the whitelist. Bob’s receiving wallet is approved and operated by an exchange. Alice constructs a native transfer herself and submits it without using Monument’s application.
+@@ -24,9 +37,9 @@
+ 6. Verify rejection by the ledger, with no consumption of Alice’s regulated coin and no creation of Bob’s proposed output.
+ 7. Run an approved sender → approved Bob transfer as the positive control in an independent/reset fixture, so it does not consume the negative test’s coin.
+ 
+-This lifecycle produces a valid coin held by a now-ineligible owner without weakening issuance. Also keep a synthetic never-approved-holder fixture for adversarial tests, clearly separated from normal issuance.
++This lifecycle produces a valid coin held by a now-ineligible owner without weakening issuance. Also keep a synthetic never-approved-holder fixture for adversarial tests, clearly separated from normal issuance. If issuance is gated, that fixture can only be created by direct state insertion in the ledger harness or by genesis in the node; it is a sanity check that is strictly easier than the revoked-Alice case.
+ 
+-Here, “EOA” means a user-controlled shielded ZSwap wallet, not an Ethereum account model. The ledger checks the exchange’s actual receiving key or contract owner. An exchange’s internal customer account is outside this initial proof. Bob need not reveal his spending or viewing key, or co-sign merely to receive. Alice’s viewing key is not an authorization credential.
++Alice’s wallet is a user-controlled shielded ZSwap wallet, not an Ethereum-style account. The ledger checks the exchange’s actual receiving key or contract owner. An exchange’s internal customer account is outside this initial proof. Bob need not reveal his spending or viewing key, or co-sign merely to receive. Alice’s viewing key is not an authorization credential.
+ 
+ ## Scope and boundaries
+ 
+@@ -46,7 +59,7 @@
+ 
+ Eligibility in this POC means approval of a cryptographic owner identifier. It does not prove the human operating that key is Alice, prevent approved users sharing keys, or identify the source of funds. Monument’s approval administrator is trusted to manage the set; unauthorized updates must still be rejected.
+ 
+-Preserve a clean extension point for future identity predicates. The existing DID and VC projects are later integration resources, not prerequisites for this experiment.
++Preserve a clean extension point for future identity predicates. The existing DID and VC projects are later integration resources, not prerequisites for this experiment. Preserve a second extension point for a future k-of-n ECDSA authorization predicate inside the gate: the gate interface must be able to accept additional authorization witnesses over the same movement binding, and in-circuit ECDSA will need its own primitive and cost model. Such a gate makes the spending key insufficient but still necessary; it does not remove the key from the prover.
+ 
+ ## What the experiment must validate
+ 
+@@ -67,7 +80,7 @@
+ 
+ ## Starting implementation and known gaps
+ 
+-The inspected ledger baseline is [alexshielded/custom-spend-logic](https://github.com/midnightntwrk/midnight-ledger/tree/fa995fa5791bc19112e97334a2d9265751c35fad), commit `fa995fa5791bc19112e97334a2d9265751c35fad`. The local checkout is `/workspace/scratch/89085fb2343e/midnight-ledger-csl`; the portable source of truth is the pinned Git commit.
++The inspected ledger baseline is [alexshielded/custom-spend-logic](https://github.com/midnightntwrk/midnight-ledger/tree/fa995fa5791bc19112e97334a2d9265751c35fad), commit `fa995fa5791bc19112e97334a2d9265751c35fad`. The portable source of truth is the pinned Git commit; verify any local checkout against it before use.
+ 
+ | Existing groundwork | What still needs to be established |
+ | --- | --- |
+@@ -75,19 +88,26 @@
+ | Nonempty descriptor hash contributes to shielded token-type derivation | The production spend circuit re-derives the type and cannot bypass the rule |
+ | `ShieldedMintKey(domain_sep, SpendRule)` and related encodings | Complete mint, discovery, construction and verification integration |
+ | Handwritten `ZswapSpend` relation and equivalence tests | New constraints, new proving artifacts and actual production use |
+-| Existing contract-call and native-effect matching | Authenticated, complete matching of native spends, outputs and policy calls |
++| Effects matching for contract-owned coins only: `claimed_nullifiers`, `claimed_shielded_receives` and `claimed_shielded_spends` in `ledger/src/verify.rs` match inputs and outputs whose `contract_address` is set | A claim channel for user-owned regulated inputs and outputs: new public binding fields, a new effects field and complete two-way matching |
++| Checked-in ZKIR in `zkir-precompiles/zswap` compiled to keys by `zkir compile-many`; no Compact compiler in the flake; hand-written zk-stdlib relation used only in tests | A production proving and verification path for a changed relation (decision below) |
++| Ledger 10 recursion instructions (`verify_proof`, `inner_proof`), `ProofVersioned::V4` and the `proof[v6]` format | Nothing required for the contract route; usable for a privacy comparison of the recursive gate |
+ 
+ The current handwritten spend relation is designed to reproduce the shipped verifier key. It is not already a CSL-enforcing circuit. Editing that relation alone will not necessarily alter the production proving path.
+ 
++**Decision (recommended):** the experiment promotes that zk-stdlib relation to the production spend path. At the pinned commit, production keys are compiled from the checked-in ZKIR in `zkir-precompiles/zswap`; the Compact compiler is commented out of `flake.nix`, so `zswap/zswap.compact` documents the v1 circuits and is not a build input; native proofs are verified through the legacy pipeline against verifier keys built into the ledger. The agent therefore first routes the unchanged relation through the production prover and verifier, embeds its verifier key, bumps the static version and proves the switch works (Stage 0), then adds CSL constraints to that relation (Stage 2). New native proofs use the ledger 10 proof format and version. Fallbacks, only if the switch fails: hand-written ZKIR, or ZKIR regenerated by a Compact compiler pinned to the IR version that `midnight-zkir` 2.2.0 expects.
++
+ Three source details are particularly easy to misread:
+ 
+-- The implementation hashes a tagged rule descriptor before including that hash in token-type derivation. The draft MIP describes descriptor concatenation more abstractly. Specify one exact byte encoding and test it across all implementations.
++- The implementation hashes a tagged rule descriptor with `persistent_hash` and then commits `(domain_sep, address, descriptor_hash)` under the `midnight:derive_token` separator. The draft MIP describes descriptor concatenation more abstractly. Reproducing tagged serialization in-circuit is awkward, so choose a fixed-width in-circuit encoding, make the Rust `descriptor_hash` match it before the first mint, and test the single byte encoding across all implementations.
+ - The current spend constructor sets `binding_input` to zero and the verifier expects zero. Its descriptive name/comment is not evidence of transaction or policy binding.
+ - The `whitelist` parameter in `zswap/src/ledger.rs` filters contract-state tracking. It is not the participant eligibility list.
++- The `static/` directory is the `midnight-ledger-static` version crate that `zswap/src/prove.rs` uses for key paths, not the public parameters. Public parameters come from the flake’s `public-params` derivation, which fetches k-indexed files from an S3 bucket; Stage 0 needs network access to that host or a pre-staged `MIDNIGHT_PP`.
++- `ledger/Cargo.toml` warns that the `test-utilities` feature disables a small amount of well-formedness checking, and `ledger/tests` compile with it. Final acceptance runs must use `WellFormedStrictness` defaults, and the agent must record what the feature relaxes.
++- Old proof acceptance lives in the `ProofVersioned` dispatch in `ledger/src/structure.rs` and the legacy verification in `zswap/src/verify.rs`; `ledger/src/prior_versions.rs` is a stub.
+ 
+ Andrzej Kopeć’s [CSL proposal, PR 335](https://github.com/midnightntwrk/midnight-improvement-proposals/pull/335), is open and unmerged at the inspected revision. Its recipient argument is a declaration; it explicitly does not enforce that the actual output pays that recipient. **Our requirement extends that draft.** Preserve one policy invocation checking Alice and Bob, while adding whatever spend/output proof and ledger linkage makes those checks authoritative.
+ 
+-The inspected node revision `ad8f2802c16594fb3c0a54c5976cab98bdeaab20` exposes ledger 8 and ledger 9 host modules, with ledger 9 as latest. The CSL checkout uses `midnight-ledger-v10`. Node integration therefore needs an explicit compatibility decision, not merely a changed dependency URL.
++The inspected node revision `ad8f2802c16594fb3c0a54c5976cab98bdeaab20` exposes ledger 8 and ledger 9 host modules, with ledger 9 as latest. The CSL checkout uses `midnight-ledger-v10`. Node integration therefore needs an explicit compatibility decision, not merely a changed dependency URL. That revision is also the current `main` head, so no node revision consumes ledger 10. The node pins ledger crates by git tag and depends on a v8-to-v9 state translation crate, so a ledger 10 host module implies a `ledger_10` module, a v9-to-v10 state translation and dispatch for the new proof format. **Decision:** the experiment builds on ledger 10 and resolves node compatibility in Stage 5.
+ 
+ ## Proposed first architecture
+ 
+@@ -98,22 +118,22 @@
+ | Route | Why investigate it | Main unresolved work |
+ | --- | --- | --- |
+ | Contract gate | Can consult the current approval set and update policy state | Native spender authentication, output binding, mandatory call matching, atomicity, execution/discovery and visible routing metadata |
+-| Recursive proof gate | Could verify a policy inside the spend proof without exposing the chosen gate | Recursive verification with a privately witnessed verifying key, a consensus-authenticated current whitelist state input, output binding and cost |
++| Recursive proof gate | Could verify a policy inside the spend proof without exposing the chosen gate; fixed-key recursion (`verify_proof`, `inner_proof`) exists on the pinned branch | A consensus-authenticated current whitelist state input, without which revocation cannot be enforced; a privately witnessed verifying key; output binding and cost |
+ | Inline experimental predicate | Can isolate whether private membership and native enforcement are feasible | Does not by itself demonstrate programmable CSL; classify it as a temporary diagnostic, not completion |
+ 
+-Choose one primary route after a small feasibility spike. Do not replace live whitelist checks with an unanchored root supplied by Alice. A pure proof against an old or attacker-chosen set does not satisfy removal.
++The decisive scenario is removal. Only a gate that reads current chain state at execution can reject a revoked holder, so the contract route is primary; the feasibility spike confirms it rather than selects it. The recursion primitive may serve a privacy comparison but cannot pass T02 or T12 until a current-state root is available to the spend proof. Do not replace live whitelist checks with an unanchored root supplied by Alice. A pure proof against an old or attacker-chosen set does not satisfy removal.
+ 
+-The MIP includes Capsule Runtime as a dependency for its broader execution model. For this bounded experiment, assess whether an explicit locally installed gate executable and synthetic membership witnesses can exercise the consensus mechanism without implementing the full capsule/discovery system. Record that limitation. A capsule or runtime identity does not substitute for native coin-owner authentication.
++The MIP includes Capsule Runtime as a dependency for its broader execution model. For this bounded experiment, assess whether an explicit locally installed gate executable and synthetic membership witnesses can exercise the consensus mechanism without implementing the full capsule/discovery system. Record that limitation. The experiment’s whitelist is public contract state, so the capsule runtime’s issuer-private-state motivation does not apply here. A capsule or runtime identity does not substitute for native coin-owner authentication.
+ 
+ ### Keep the whitelist simple
+ 
+-Use a small issuer-controlled set of approved owner commitments. For a tiny fixture, a bounded collection checked in-circuit is adequate; use a Merkle root only when required by the available primitives or cost. This is a data structure, not a DID or KYC registry.
++Use a small issuer-controlled set of approved owner commitments. For a tiny fixture, a bounded collection checked in-circuit is adequate; use a Merkle root only when required by the available primitives or cost. **Open (Stage 1):** if a bounded collection is used, read every entry unconditionally, because a selective read records the matching cell in the public transcript and leaks the index; confirm the read pattern as part of the V9 review. This is a data structure, not a DID or KYC registry.
+ 
+ Proposed leaf semantics are a domain-separated commitment to the owner kind, owner identifier and enrollment randomness. The owner identifier is the ZSwap coin public key for a user, or the contract address for a contract. Use high-entropy randomness if hiding enrollment links is part of the privacy test; a public hash of a known key alone is not that guarantee.
+ 
+ The gate receives the owner and membership opening privately, proves membership in the current set, and binds the owner to the native transfer. Monument can supply Bob’s membership material alongside his receiving information for this fixture; Bob supplies no spending secret. Treat membership material as evidence of inclusion, not as spending authority.
+ 
+-The administrator can add or remove entries. Bind the active set or root to actual on-chain state at execution. A historical coin commitment-tree root may remain valid under normal ZSwap rules; an old eligibility root must not silently inherit that acceptance window.
++The administrator can add or remove entries. Bind the active set or root to actual on-chain state at execution. A historical coin commitment-tree root may remain valid under normal ZSwap rules; an old eligibility root must not silently inherit that acceptance window. In Compact terms, `HistoricMerkleTree.checkRoot` is that window and is what `zswap.compact` uses for the coin tree; the whitelist must use the non-historic `MerkleTree` or an equivalent current-state read. **Open (Stage 1):** verify this when the gate is written.
+ 
+ ### Bind the rule to the token
+ 
+@@ -123,7 +143,7 @@
+ 
+ Because token type is shielded, avoid a design that first asks the ledger to look up a public token type to decide whether checking is necessary. The relation and version dispatch must close that bypass without disclosing the type.
+ 
+-Retain exact legacy derivation for `Empty`. Reject unsupported descriptor variants; do not treat an unimplemented `GateCircuit` as success. Before minting the experimental asset, decide whether the descriptor reserves future receipt-policy fields; changing a committed descriptor later changes asset identity. Rule discovery and derivation inputs must also be available to legitimate wallets, including any newly required inputs for legacy spends.
++Retain exact legacy derivation for `Empty`. Reject unsupported descriptor variants; do not treat an unimplemented `GateCircuit` as success. Before minting the experimental asset, decide whether the descriptor reserves future receipt-policy fields; changing a committed descriptor later changes asset identity. Rule discovery and derivation inputs must also be available to legitimate wallets. Unconditional re-derivation makes the `(domain separator, minting address, descriptor)` preimage a prerequisite for spending any contract-minted shielded coin, guarded or not. For this experiment that is contained: fees are paid through DUST actions on the intent, so the regulated offer carries no fee coin and the builder needs only the regulated token’s preimage. Record the general case as a production-migration finding in Stage 6.
+ 
+ ### Authenticate one decision for both sides
+ 
+@@ -146,6 +166,8 @@
+ 
+ Additional output-circuit or native output-format changes may be necessary. That does not require two separate application-level CSL calls: one policy invocation can still validate both parties. For multiple inputs/outputs, define explicit coverage rather than assuming a one-to-one mapping between coins and payments.
+ 
++**Open (Stage 1): recipient coverage shape.** Two shapes are viable and the design decision must choose one. Under *marked outputs*, the output circuit re-derives the type and exposes a public binding field for guarded descriptors, and the gate claims exactly the marked inputs and outputs; this reveals at creation that an output is regulated. Under *segment-wide coverage*, one gate call claims every output commitment in the segment and checks, per coin, that a regulated type implies an approved recipient; no output is marked, but the gate witnesses every output, any later merge invalidates the authorization, and minting must be gated through the public mint effect so that a regulated output cannot appear in a segment with no regulated input. In either shape, a zero-value output of a guarded type is Pedersen-neutral and needs no mint; the coverage register must state how zero-value outputs are treated.
++
+ ### Specify application and privacy semantics
+ 
+ The gate and protected movement must share an execution outcome. Define how guaranteed and fallible sections interact; reject combinations where policy fails but the regulated spend survives. Authorizations cannot be copied across segments or reused for uncovered inputs.
+@@ -160,17 +182,19 @@
+ 
+ ### Stage 0 Establish a reproducible baseline
+ 
+-Read repository instructions and the sources below. Preserve the pinned checkout and create an isolated experiment branch. Confirm the ledger/node compatibility strategy before substantial integration work: use a compatible node branch, add an experimental host adapter, or port the bounded CSL changes to an agreed ledger base.
++Read repository instructions and the sources below. Preserve the pinned checkout and create an isolated experiment branch. The ledger base is the pinned ledger 10 branch. Before substantial Stage 5 work, confirm the node strategy: a `ledger_10` host module in the pinned node (default) or an experimental host adapter.
+ 
+ Provision the pinned Nix/Rust/proving environment. Run derivation tests, the existing real spend-proof baseline and one ordinary transfer through strict ledger verification. Record exact revisions, enabled features and artifact hashes.
+ 
+-**Exit:** a reproducible baseline with real proofs, an approved-transfer control, a corrupt-proof rejection control and a written version compatibility decision.
++Then perform the pipeline switch: route the unchanged hand-written zk-stdlib spend relation through the production prover and verifier, embed its verifier key, bump the static version, and show that a proof from it passes `Transaction<Proof>` verification under `WellFormedStrictness` defaults while a proof under the old key is rejected. Every later CSL constraint builds on this baseline.
++
++**Exit:** a reproducible baseline with real proofs, an approved-transfer control, a corrupt-proof rejection control, a completed pipeline switch with old-key rejection, and a written node compatibility decision.
+ 
+ ### Stage 1 Specify the native authorization boundary
+ 
+-Inventory all paths that consume or create this asset. Write a short design decision covering the selected gate mode, token encoding, sender authentication, recipient coverage, current-state rules, proof linkage, segment atomicity and public disclosures.
++Inventory all paths that consume or create this asset. Write a short design decision covering the selected gate mode, token encoding and in-circuit descriptor encoding, sender authentication, recipient coverage shape (marked outputs or segment-wide coverage), whitelist structure and read pattern, current-state rules, proof linkage, segment atomicity and public disclosures.
+ 
+-Prototype the smallest missing proof/call linkage. Establish which circuit source actually feeds production artifacts. Define the first supported shape as one regulated input and one regulated output of equal value, with no regulated change or transient leg. Pay fees separately using the ordinary supported fee mechanism. Enforce these limits without trusting client labels: fee plumbing must not conceal additional regulated inputs or outputs.
++Prototype the smallest missing proof/call linkage. Establish which circuit source actually feeds production artifacts. Define the first supported shape as one regulated input and one regulated output of equal value, with no regulated change or transient leg. Pay fees through DUST, the ordinary fee mechanism at this ledger version, so the regulated offer contains no fee coin. Enforce these limits without trusting client labels: fee plumbing must not conceal additional regulated inputs or outputs. Budget for wire-format changes: a public binding field on `Input` (and on `Output` under the marked-outputs shape), a new `Effects` field with its storable tag bump, VM encode and decode paths, and a cost-model entry.
+ 
+ **Exit:** an implementable proof relation and ledger matching rule. Every other shape is either covered by that rule or explicitly rejected at consensus validation. If linkage cannot be made sound with the chosen route, report the precise blocker and evaluate the alternate route; do not downgrade to application enforcement.
+ 
+@@ -184,7 +208,7 @@
+ 
+ ### Stage 3 Demonstrate the exact revoked Alice scenario
+ 
+-Run the lifecycle fixture through strict `Transaction<Proof>` verification and state application. Submit through a raw builder that bypasses application policy checks. Attempt an old-root proof, omitted call, wrong call, old spend-proof path and substituted recipient.
++Run the lifecycle fixture through strict `Transaction<Proof>` verification with `WellFormedStrictness` defaults and state application. Submit through a raw builder that bypasses application policy checks. Attempt an old-root proof, omitted call, wrong call, old spend-proof path and substituted recipient.
+ 
+ A negative circuit test may fail during proof creation. Supplement it with deliberately malformed or mismatched serialized transactions and otherwise-valid proofs/effects that the real verifier rejects. Verify the intended rejection reason; an unrelated fee, expiry or balance error is not evidence of CSL enforcement.
+ 
+@@ -192,9 +216,9 @@
+ 
+ ### Stage 4 Expand and audit movement coverage
+ 
+-Add support incrementally for splits, change, merges, multiple inputs, multiple owners, batches, contract owners, contract recipients, transient coins and composable offers. Re-run the native bypass cases for each shape.
++Add support incrementally, starting with one regulated input, one regulated output and one regulated change output to the sender, since change is the first thing a real wallet needs and the sender is already an approved recipient. Then add splits, merges, multiple inputs, multiple owners, batches, contract owners, contract recipients, transient coins and composable offers. Re-run the native bypass cases for each shape.
+ 
+-For merged/partial offers, decide whether authorization binds before or after composition and whether re-proving is required. A changed output set must never inherit an authorization for the original set. Maintain an explicit coverage register of supported, rejected and unresolved shapes.
++For merged/partial offers, decide whether authorization binds before or after composition and whether re-proving is required. A changed output set must never inherit an authorization for the original set. Maintain an explicit coverage register of supported, rejected and unresolved shapes, including zero-value outputs of the guarded type.
+ 
+ Audit mint, burn, redemption, wrapping and conversion routes that exist in the selected baseline. Initial issuance must not create an accidental unapproved-recipient route. Burn or redemption cannot become an unguarded spend escape. Deferred routes remain rejected for the regulated asset.
+ 
+@@ -202,7 +226,7 @@
+ 
+ ### Stage 5 Integrate the experimental node
+ 
+-Use a fresh local chain/genesis and an isolated chain identity. Wire the selected ledger version, verifier artifacts, host interface, serialization and runtime dispatch. Update only the client/indexer/prover components needed to submit and inspect the experiment.
++Use a fresh local chain/genesis and an isolated chain identity. Wire the selected ledger version, verifier artifacts, host interface, serialization and runtime dispatch. Update only the client/indexer/prover components needed to submit and inspect the experiment. Before RPC and genesis work, reach an intermediate milestone: import a block containing the negative fixture through the node’s ledger host API in a node unit test.
+ 
+ Run the exact positive and negative scenarios through RPC. Then exercise block import/validation with an invalid transaction embedded in a proposed block, bypassing normal mempool admission. Reject old-version proof routes at the active experimental protocol boundary, while preserving any explicitly supported historical validation semantics.
+ 
+@@ -212,7 +236,7 @@
+ 
+ Measure proving time, verification time, transaction/proof sizes, memory and gate/state-read costs against a comparable unguarded transfer. Include first-shape and expanded-shape results and the hardware/configuration used.
+ 
+-Produce the proposed CSL contract/proof interface from the implementation: authenticated inputs, private witnesses, public inputs/effects, authorization coverage, freshness, versioning and failure behavior. Explain which parts are general primitives and which are POC restrictions.
++Produce the proposed CSL contract/proof interface from the implementation: authenticated inputs, private witnesses, public inputs/effects, authorization coverage, freshness, versioning and failure behavior. Explain which parts are general primitives and which are POC restrictions. Record two standing findings: an authorized upgrade of the gate contract changes the rule without changing the token type, so holders trust the gate’s governance as well as its code; and unconditional re-derivation requires every wallet to resolve the token-type preimage for any contract-minted shielded coin.
+ 
+ **Exit:** reproducible evidence, a concrete CSL interface proposal, known limitations, and a decision on whether the mechanism is ready for a DID/VC-backed eligibility predicate. Successful whitelist enforcement alone does not establish production readiness.
+ 
+@@ -252,6 +276,8 @@
+ | T28 | Read public inputs, events, effects and logs across repeated transfers | No new stable participant identifier or witness leakage; policy metadata documented |
+ | T29 | Submit an invalid transaction inside a proposed block | Block validation rejects it even without mempool checks |
+ | T30 | Restart/replay the experimental chain | Same policy state and transfer validity; no runtime/version fallback |
++| T31 | Policy contract missing or undeployed at the descriptor’s address | Rejected; the asset is frozen rather than spendable unguarded |
++| T32 | Zero-value output of the guarded type to an unapproved party | Rejected, or explicitly permitted and documented as worthless and unspendable |
+ 
+ For rejected movement, assert no new regulated output and no consumed regulated input/nullifier. Account separately for fees or unrelated sections according to the selected transaction semantics; do not silently equate all transaction-level side effects with the protected transfer.
+ 
+@@ -272,14 +298,16 @@
+ | Transaction checks | [ledger/src/verify.rs](https://github.com/midnightntwrk/midnight-ledger/blob/fa995fa5791bc19112e97334a2d9265751c35fad/ledger/src/verify.rs) | Transaction well_formed, effects_check, sequencing and balancing |
+ | State application | [ledger/src/semantics.rs](https://github.com/midnightntwrk/midnight-ledger/blob/fa995fa5791bc19112e97334a2d9265751c35fad/ledger/src/semantics.rs), [zswap/src/ledger.rs](https://github.com/midnightntwrk/midnight-ledger/blob/fa995fa5791bc19112e97334a2d9265751c35fad/zswap/src/ledger.rs) | apply_section, guaranteed/fallible outcomes, commitment/nullifier state |
+ | Integration tests | [ledger/tests](https://github.com/midnightntwrk/midnight-ledger/tree/fa995fa5791bc19112e97334a2d9265751c35fad/ledger/tests), [test_utilities.rs](https://github.com/midnightntwrk/midnight-ledger/blob/fa995fa5791bc19112e97334a2d9265751c35fad/ledger/src/test_utilities.rs) | Start with intent, malicious_imbalance and verify-proof patterns; ensure strict final validation |
+-| Build and artifacts | [README](https://github.com/midnightntwrk/midnight-ledger/blob/fa995fa5791bc19112e97334a2d9265751c35fad/README.md), [flake.nix](https://github.com/midnightntwrk/midnight-ledger/blob/fa995fa5791bc19112e97334a2d9265751c35fad/flake.nix), [static](https://github.com/midnightntwrk/midnight-ledger/tree/fa995fa5791bc19112e97334a2d9265751c35fad/static) | Pinned environment, public parameters, local-params generation, artifact hashes and version |
++| Build and artifacts | [README](https://github.com/midnightntwrk/midnight-ledger/blob/fa995fa5791bc19112e97334a2d9265751c35fad/README.md), [flake.nix](https://github.com/midnightntwrk/midnight-ledger/blob/fa995fa5791bc19112e97334a2d9265751c35fad/flake.nix), [static](https://github.com/midnightntwrk/midnight-ledger/tree/fa995fa5791bc19112e97334a2d9265751c35fad/static) | Pinned environment, the `public-params` and `local-params` derivations, artifact hashes, and the `midnight-ledger-static` version crate |
+ | Node integration | [node Cargo.toml](https://github.com/midnightntwrk/midnight-node/blob/ad8f2802c16594fb3c0a54c5976cab98bdeaab20/Cargo.toml), [node ledger/src/lib.rs](https://github.com/midnightntwrk/midnight-node/blob/ad8f2802c16594fb3c0a54c5976cab98bdeaab20/ledger/src/lib.rs) | Versioned dependencies, host modules and active ledger dispatch |
++| Proof versions | [ledger/src/structure.rs](https://github.com/midnightntwrk/midnight-ledger/blob/fa995fa5791bc19112e97334a2d9265751c35fad/ledger/src/structure.rs) | `ProofVersioned` dispatch; where old proof routes are closed |
++| Recursion primitives | [zkir-v3/src/ir_instructions/verify_proof.rs](https://github.com/midnightntwrk/midnight-ledger/blob/fa995fa5791bc19112e97334a2d9265751c35fad/zkir-v3/src/ir_instructions/verify_proof.rs) | Available primitive for the recursive-gate comparison; not a dependency |
+ 
+ Do not validate the security claim by calling generic ZSwap state application alone: that layer accepts generic proof types and is not the complete transaction verifier. Enter through the real transaction verification path and then apply the verified result.
+ 
+ ## Build and verification starting points
+ 
+-The following commands are grounded in the inspected repository and are starting points for the coding agent. No CSL implementation or build has been completed as part of this plan. The current workspace has Git but lacks Nix, Cargo and Rust; provisioning is Stage 0.
++The following commands are grounded in the inspected repository and are starting points for the coding agent. No CSL implementation or build has been completed as part of this plan. Provisioning the toolchain is Stage 0; do not assume Nix, Cargo or Rust are present.
+ 
+ For a fresh checkout:
+ 
+@@ -309,11 +337,11 @@
+ 
+ During implementation, add and run focused CSL integration targets before the broader suite. Recheck package names if the compatibility decision changes the ledger base.
+ 
+-The flake supplies the proving parameters and environment, including `MIDNIGHT_PP`, `MIDNIGHT_LEDGER_TEST_STATIC_DIR` in relevant test/dev configurations, and experimental flags. Its `local-params` derivation compiles the ZSwap precompiles with `zkir compile-many`, hashes the artifacts and installs versioned files. Follow that actual generation pipeline; document how the regenerated verifier reaches the ledger binary.
++The flake supplies the proving parameters and environment, including `MIDNIGHT_PP`, `MIDNIGHT_LEDGER_TEST_STATIC_DIR` in relevant test/dev configurations, and experimental flags. Its `public-params` derivation fetches the public parameters by k from an S3 bucket. Its `local-params` derivation copies the checked-in ZKIR from `zkir-precompiles/zswap`, compiles it with `zkir compile-many`, hashes the artifacts and installs versioned files; the Compact compiler is commented out, so `.compact` sources are not compiled in this pipeline. Follow that actual generation pipeline, or the zk-stdlib relation path chosen above; document how the new verifier key reaches the ledger binary.
+ 
+-Keep `proof-verifying` enabled and `mock-verify` disabled. Do not use `--all-features` indiscriminately: it can enable mock verification. Default Rust test runs do not necessarily perform proving; preserve the explicit real-proof checks. Require a deliberately corrupted proof to fail so feature mistakes cannot masquerade as successful enforcement.
++Keep `proof-verifying` enabled and `mock-verify` disabled. Do not use `--all-features` indiscriminately: it can enable mock verification. Default Rust test runs do not necessarily perform proving; preserve the explicit real-proof checks. Require a deliberately corrupted proof to fail so feature mistakes cannot masquerade as successful enforcement. Note that `ledger/tests` compile with the `test-utilities` feature, which the manifest says disables some well-formedness checking; run final acceptance with `WellFormedStrictness` defaults and record what the feature relaxes.
+ 
+-Changing the relation requires coordinated prover/verifier/IR artifacts, hashes, static versioning and key-resolution updates. Preserve the old equivalence baseline as historical evidence; do not require a changed CSL relation to retain the old verifier key. Close all active old-proof acceptance routes, rather than giving the submitter a verifier-version choice.
++Changing the relation requires coordinated prover/verifier/IR artifacts, hashes, static versioning and key-resolution updates. Preserve the old equivalence baseline as historical evidence; do not require a changed CSL relation to retain the old verifier key. Close all active old-proof acceptance routes, rather than giving the submitter a verifier-version choice. Those routes are the `ProofVersioned` dispatch in `ledger/src/structure.rs` and the legacy verification in `zswap/src/verify.rs`.
+ 
+ ## Reference material and later identity integration
+ 
+@@ -346,6 +374,7 @@
+ - Versioned circuit artifacts and a reproducible generation/build procedure.
+ - A direct transaction builder and automated scenario runner for the decisive Alice → Bob case and positive control.
+ - A coverage register linking every supported or prohibited movement shape to a test.
++- Stage 0 pipeline-switch evidence: the new verifier key embedded and a proof under the old key rejected.
+ - Real-proof test results, node/block-validation evidence and before/after regulated-state assertions.
+ - Performance measurements, privacy findings and a clear list of missing primitives or unresolved semantics.
+ - A final CSL interface proposal, with the smallest next step toward identity-backed approval.

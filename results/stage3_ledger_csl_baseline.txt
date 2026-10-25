@@ -1,0 +1,6 @@
+running 3 tests
+test csl_baseline_altered_statement_is_rejected ... ok
+test csl_baseline_plain_transfer_is_accepted ... ok
+test csl_baseline_corrupted_spend_proof_is_rejected ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 39.07s
+EXIT=0

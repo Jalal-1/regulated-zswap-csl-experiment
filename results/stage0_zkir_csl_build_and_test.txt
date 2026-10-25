@@ -1,0 +1,15 @@
+# 2026-10-25T16:18:25Z
+running 2 tests
+test vk_is_byte_identical_to_shipped_spend_verifier ... ok
+test proofs_verify_against_shipped_verifier_key ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.87s
+running 4 tests
+test write_csl_spend_verifier_key ... ignored
+test derivation_matches_coin_structure ... ok
+CSL spend relation: k = 15
+CSL spend relation: k = 15
+test csl_spend_relation_rejects_wrong_rule_witness ... ok
+test csl_spend_relation_end_to_end ... ok
+test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 43.54s
+EXIT=0
+# end 2026-10-25T16:19:52Z

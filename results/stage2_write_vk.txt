@@ -1,0 +1,6 @@
+running 1 test
+CSL spend relation: k = 15
+wrote 2311 bytes, sha256 688a23d48518716eb0e07bdbed302f318c2931299e0aa43b90b8c2b9751c1fea
+test write_csl_spend_verifier_key ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 5.39s
+EXIT=0

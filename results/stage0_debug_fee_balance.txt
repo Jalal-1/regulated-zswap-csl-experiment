@@ -1,0 +1,11 @@
+running 1 test
+fees (verifier flag=true): Ok(984370000000001)
+fees (balancer flag=false): Ok(984370000000001)
+balance with verifier fees: Ok({(Dust, 0): -100000000000})
+balance with no fees: Ok({(Dust, 0): 984270000000001})
+intent segment 1: dust spends v_fee = None, actions = 0
+intent segment 65261: dust spends v_fee = Some([984270000000001]), actions = 0
+well_formed: Err("BalanceCheckOverspend { token_type: Dust, segment: 0, overspent_value: -100000000000 }")
+test csl_baseline_debug_fee_balance ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 12.63s
+EXIT=0

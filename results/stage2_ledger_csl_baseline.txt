@@ -1,0 +1,23 @@
+running 3 tests
+test csl_baseline_altered_statement_is_rejected ... ok
+test csl_baseline_corrupted_spend_proof_is_rejected has been running for over 60 seconds
+test csl_baseline_plain_transfer_is_accepted has been running for over 60 seconds
+test csl_baseline_corrupted_spend_proof_is_rejected ... ok
+thread 'csl_baseline_plain_transfer_is_accepted' (22758) panicked at ledger/tests/csl_baseline.rs:212:10:
+plain transfer must be well-formed under default strictness: BalanceCheckOverspend { token_type: Dust, segment: 0, overspent_value: -350000000000 }
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: core::result::unwrap_failed
+   3: csl_baseline::csl_baseline_plain_transfer_is_accepted::{closure#0}
+   4: <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<<tokio::runtime::scheduler::current_thread::CoreGuard>::enter<<tokio::runtime::scheduler::current_thread::CoreGuard>::block_on<core::pin::Pin<&mut core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>>::{closure#0}, core::option::Option<()>>::{closure#0}, (alloc::boxed::Box<tokio::runtime::scheduler::current_thread::Core>, core::option::Option<()>)>
+   5: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+   6: <csl_baseline::csl_baseline_plain_transfer_is_accepted::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+test csl_baseline_plain_transfer_is_accepted ... FAILED
+failures:
+failures:
+    csl_baseline_plain_transfer_is_accepted
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 60.38s
+error: test failed, to rerun pass `-p midnight-ledger-v10 --test csl_baseline`
+EXIT=101

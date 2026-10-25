@@ -1,0 +1,7 @@
+# 2026-10-25T15:57:34Z
+running 2 tests
+test malicious_imbalance_duplicate_nullifier ... ok
+test malicious_imbalance ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.19s
+EXIT=0
+# end 2026-10-25T16:02:32Z

@@ -1,0 +1,101 @@
+running 9 tests
+test t01_approved_to_approved_is_accepted ... ok
+test t02_revoked_sender_cannot_move_the_coin ... stale transfer: rejected at application: Failure(Transcript(Execution(ReadMismatch { expected: <[21dc488c04276c5b7a64f8708503db2f96613ce6d96e640f58c951e9c8559a20]: f>, actual: <[04381f6504a8ce4ffe06182ef91c5727bf7f9f080df3add70b9b2991e2748004]: f> })))
+fresh transfer after removal: rejected at verification: InvalidProof(v1 verification: Invalid proof
+Stack backtrace:
+   0: <anyhow::Error>::msg::<alloc::string::String>
+   1: anyhow::__private::format_err
+   2: <midnight_ledger_v10::structure::ProofMarker as midnight_ledger_v10::structure::ProofKind<midnight_storage_core::db::InMemoryDB>>::proof_verify::{closure#2}
+   3: <midnight_ledger_v10::structure::ContractAction<midnight_ledger_v10::structure::ProofMarker, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   4: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   5: <midnight_ledger_v10::test_utilities::TestState<midnight_storage_core::db::InMemoryDB>>::apply::<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr>
+   6: csl_regulated_transfer::csl_common::attempt::{closure#0}
+   7: csl_regulated_transfer::t02_revoked_sender_cannot_move_the_coin::{closure#0}
+   8: <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<<tokio::runtime::scheduler::current_thread::CoreGuard>::enter<<tokio::runtime::scheduler::current_thread::CoreGuard>::block_on<core::pin::Pin<&mut core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>>::{closure#0}, core::option::Option<()>>::{closure#0}, (alloc::boxed::Box<tokio::runtime::scheduler::current_thread::Core>, core::option::Option<()>)>
+   9: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+  10: <csl_regulated_transfer::t02_revoked_sender_cannot_move_the_coin::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+  11: test::__rust_begin_short_backtrace::<core::result::Result<(), alloc::string::String>, fn() -> core::result::Result<(), alloc::string::String>>
+  12: test::run_test::{closure#0}
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<test::run_test::{closure#1}, ()>
+  14: <std::thread::lifecycle::spawn_unchecked<test::run_test::{closure#1}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+  15: <std::sys::thread::unix::Thread>::new::thread_start
+  16: start_thread
+             at ./nptl/pthread_create.c:447:8
+  17: clone3
+             at ./misc/../sysdeps/unix/sysv/linux/x86_64/clone3.S:78:0)
+ok
+test t04_unapproved_recipient_cannot_be_proven ... transfer to an unapproved recipient: rejected at verification: InvalidProof(v1 verification: Invalid proof
+Stack backtrace:
+   0: <anyhow::Error>::msg::<alloc::string::String>
+   1: anyhow::__private::format_err
+   2: <midnight_ledger_v10::structure::ProofMarker as midnight_ledger_v10::structure::ProofKind<midnight_storage_core::db::InMemoryDB>>::proof_verify::{closure#2}
+   3: <midnight_ledger_v10::structure::ContractAction<midnight_ledger_v10::structure::ProofMarker, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   4: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   5: <midnight_ledger_v10::test_utilities::TestState<midnight_storage_core::db::InMemoryDB>>::apply::<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr>
+   6: csl_regulated_transfer::csl_common::attempt::{closure#0}
+   7: csl_regulated_transfer::t04_unapproved_recipient_cannot_be_proven::{closure#0}
+   8: <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<<tokio::runtime::scheduler::current_thread::CoreGuard>::enter<<tokio::runtime::scheduler::current_thread::CoreGuard>::block_on<core::pin::Pin<&mut core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>>::{closure#0}, core::option::Option<()>>::{closure#0}, (alloc::boxed::Box<tokio::runtime::scheduler::current_thread::Core>, core::option::Option<()>)>
+   9: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+  10: <csl_regulated_transfer::t04_unapproved_recipient_cannot_be_proven::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+  11: test::__rust_begin_short_backtrace::<core::result::Result<(), alloc::string::String>, fn() -> core::result::Result<(), alloc::string::String>>
+  12: test::run_test::{closure#0}
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<test::run_test::{closure#1}, ()>
+  14: <std::thread::lifecycle::spawn_unchecked<test::run_test::{closure#1}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+  15: <std::sys::thread::unix::Thread>::new::thread_start
+  16: start_thread
+             at ./nptl/pthread_create.c:447:8
+  17: clone3
+             at ./misc/../sysdeps/unix/sysv/linux/x86_64/clone3.S:78:0)
+ok
+test t06_omitted_gate_call_is_rejected ... ok
+test t07_substituted_sender_is_rejected ... ok
+test t08_output_to_unchecked_recipient_is_rejected ... ok
+test t13_attacker_chosen_root_fails_at_replay ... forged root, claimed: rejected at application: Failure(Transcript(Execution(ReadMismatch { expected: <[70061e07ff1db4706e42b91d7e44a6ee11aa40fe652604f086aaae3f9210551d]: f>, actual: <[e300617683c90535acff41e7b7cf32b84ff12cffa8853aa0cecc479683bab52d]: f> })))
+ok
+test t13b_forged_root_in_witness_is_an_invalid_proof ... forged root, unclaimed: rejected at verification: InvalidProof(v1 verification: Invalid proof
+Stack backtrace:
+   0: <anyhow::Error>::msg::<alloc::string::String>
+   1: anyhow::__private::format_err
+   2: <midnight_ledger_v10::structure::ProofMarker as midnight_ledger_v10::structure::ProofKind<midnight_storage_core::db::InMemoryDB>>::proof_verify::{closure#2}
+   3: <midnight_ledger_v10::structure::ContractAction<midnight_ledger_v10::structure::ProofMarker, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   4: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   5: <midnight_ledger_v10::test_utilities::TestState<midnight_storage_core::db::InMemoryDB>>::apply::<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr>
+   6: csl_regulated_transfer::csl_common::attempt::{closure#0}
+   7: csl_regulated_transfer::t13b_forged_root_in_witness_is_an_invalid_proof::{closure#0}
+   8: <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<<tokio::runtime::scheduler::current_thread::CoreGuard>::enter<<tokio::runtime::scheduler::current_thread::CoreGuard>::block_on<core::pin::Pin<&mut core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>>::{closure#0}, core::option::Option<()>>::{closure#0}, (alloc::boxed::Box<tokio::runtime::scheduler::current_thread::Core>, core::option::Option<()>)>
+   9: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+  10: <csl_regulated_transfer::t13b_forged_root_in_witness_is_an_invalid_proof::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+  11: test::__rust_begin_short_backtrace::<core::result::Result<(), alloc::string::String>, fn() -> core::result::Result<(), alloc::string::String>>
+  12: test::run_test::{closure#0}
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<test::run_test::{closure#1}, ()>
+  14: <std::thread::lifecycle::spawn_unchecked<test::run_test::{closure#1}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+  15: <std::sys::thread::unix::Thread>::new::thread_start
+  16: start_thread
+             at ./nptl/pthread_create.c:447:8
+  17: clone3
+             at ./misc/../sysdeps/unix/sysv/linux/x86_64/clone3.S:78:0)
+ok
+test t24_wrong_admin_secret_cannot_update_root ... update with the wrong secret: rejected at verification: InvalidProof(v1 verification: Invalid proof
+Stack backtrace:
+   0: <anyhow::Error>::msg::<alloc::string::String>
+   1: anyhow::__private::format_err
+   2: <midnight_ledger_v10::structure::ProofMarker as midnight_ledger_v10::structure::ProofKind<midnight_storage_core::db::InMemoryDB>>::proof_verify::{closure#2}
+   3: <midnight_ledger_v10::structure::ContractAction<midnight_ledger_v10::structure::ProofMarker, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   4: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   5: <midnight_ledger_v10::test_utilities::TestState<midnight_storage_core::db::InMemoryDB>>::apply::<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr>
+   6: csl_regulated_transfer::t24_wrong_admin_secret_cannot_update_root::{closure#0}
+   7: <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<<tokio::runtime::scheduler::current_thread::CoreGuard>::enter<<tokio::runtime::scheduler::current_thread::CoreGuard>::block_on<core::pin::Pin<&mut core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>>::{closure#0}, core::option::Option<()>>::{closure#0}, (alloc::boxed::Box<tokio::runtime::scheduler::current_thread::Core>, core::option::Option<()>)>
+   8: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+   9: <csl_regulated_transfer::t24_wrong_admin_secret_cannot_update_root::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+  10: test::__rust_begin_short_backtrace::<core::result::Result<(), alloc::string::String>, fn() -> core::result::Result<(), alloc::string::String>>
+  11: test::run_test::{closure#0}
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<test::run_test::{closure#1}, ()>
+  13: <std::thread::lifecycle::spawn_unchecked<test::run_test::{closure#1}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+  14: <std::sys::thread::unix::Thread>::new::thread_start
+  15: start_thread
+             at ./nptl/pthread_create.c:447:8
+  16: clone3
+             at ./misc/../sysdeps/unix/sysv/linux/x86_64/clone3.S:78:0)
+ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 236.09s
+EXIT=0

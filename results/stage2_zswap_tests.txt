@@ -1,0 +1,30 @@
+22 | use group::{Group, GroupEncoding};
+running 19 tests
+test ledger::tag_enforcement_test_State ... ok
+test keys::tests::encryption_key_derivation_matches_test_vectors ... ok
+test keys::tests::coin_key_derivation_matches_test_vectors ... ok
+test local::tag_enforcement_test_State ... ok
+test construct::tests::bad_transient ... ok
+test prove::tests::test_pi_lengths ... ok
+test local::tests::coin_encryption_succeeds ... ok
+test structure::tag_enforcement_test_AuthorizedClaim ... ok
+test structure::tag_enforcement_test_CoinCiphertext ... ok
+test structure::tag_enforcement_test_Delta ... ok
+test structure::tag_enforcement_test_Input ... ok
+test structure::tag_enforcement_test_Offer ... ok
+test structure::tag_enforcement_test_Output ... ok
+test structure::tag_enforcement_test_SpendPolicyBinding ... ok
+test structure::tag_enforcement_test_Transient ... ok
+test verify::test_caddr_op ... ok
+test ledger::tests::test_roots_retention ... ok
+test ledger::tests::test_filtered_spend ... ok
+test prove::tests::test_proof_sizes ... ok
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.60s
+running 2 tests
+test state_filtering ... ok
+test coin_receiving ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+   Doc-tests midnight_zswap
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+EXIT=0

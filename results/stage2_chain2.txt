@@ -1,0 +1,4 @@
+chain2 start 2026-10-25T16:25:59Z
+zswap tests done 2026-10-25T16:27:02Z
+baseline done 2026-10-25T16:29:48Z
+chain2 end 2026-10-25T16:29:52Z

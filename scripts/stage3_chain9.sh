@@ -1,0 +1,14 @@
+#!/bin/bash
+# Chain 9: rerun after the whitelist-override fix for T13.
+set -u
+S=/tmp/claude-0/-home-user-wea-japan-pos-poc/8fb10d81-7d79-5e0b-88f5-274972519579/scratchpad
+cd /home/user/midnightntwrk/midnight-ledger
+export CARGO_NET_GIT_FETCH_WITH_CLI=true CARGO_TERM_COLOR=never MIDNIGHT_PP="$S/params" RUST_MIN_STACK=67108864 MIDNIGHT_LEDGER_TEST_STATIC_DIR="$S/test-artifacts"
+L="$S/logs"
+echo "chain9 start $(date -u +%FT%TZ)" > "$L/stage3_chain9.log"
+{ cargo test --release -p midnight-ledger-v10 --features proving --test csl_regulated_transfer --no-run 2>&1; echo "EXIT=$?"; } > "$L/stage3_scenarios_build4.log" 2>&1
+echo "build done $(date -u +%FT%TZ)" >> "$L/stage3_chain9.log"
+if grep -q '^EXIT=0' "$L/stage3_scenarios_build4.log"; then
+  { cargo test --release -p midnight-ledger-v10 --features proving --test csl_regulated_transfer -- --nocapture --test-threads=1 2>&1; echo "EXIT=$?"; } > "$L/stage3_scenarios_run4.log" 2>&1
+fi
+echo "chain9 end $(date -u +%FT%TZ)" >> "$L/stage3_chain9.log"

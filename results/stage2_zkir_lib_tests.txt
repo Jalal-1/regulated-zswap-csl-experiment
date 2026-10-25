@@ -1,0 +1,13 @@
+running 10 tests
+test ir::proptest_random_data_deserialize_Instruction ... ok
+test ir::proptest_random_data_deserialize_IrSource ... ok
+test ir::proptest_deserialize_Instruction ... ok
+test ir::proptest_serialized_size_Instruction ... ok
+test ir::tag_enforcement_test_Instruction ... ok
+test ir::tag_enforcement_test_IrSource ... ok
+test ir::tag_enforcement_test_ProverKey ... ok
+test ir::proptest_deserialize_IrSource ... ok
+test ir::proptest_serialized_size_IrSource ... ok
+test csl_whitelist::tests::paths_recompute_the_root ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+EXIT=0

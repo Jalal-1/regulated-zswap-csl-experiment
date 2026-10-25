@@ -1,0 +1,5 @@
+chain start 2026-10-25T16:22:07Z
+vk written 2026-10-25T16:22:46Z
+zswap tests done 2026-10-25T16:23:22Z
+baseline done 2026-10-25T16:23:34Z
+chain end 2026-10-25T16:23:36Z

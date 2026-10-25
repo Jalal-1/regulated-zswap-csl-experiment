@@ -1,0 +1,11 @@
+# 2026-10-25T15:43:29Z commit fa995fa5791bc19112e97334a2d9265751c35fad rustc rustc 1.97.0 (2d8144b78 2026-07-07)
+    Updating git repository `https://github.com/midnightntwrk/midnight-ledger`
+From https://github.com/midnightntwrk/midnight-ledger
+ * [new ref]           a01a1ea0270d2e8a1f9a58f0e3cf5ceb029283e1 -> refs/commit/a01a1ea0270d2e8a1f9a58f0e3cf5ceb029283e1
+    Updating crates.io index
+running 3 tests
+test custom_spend::tests::empty_rule_preserves_legacy_derivation ... ok
+test custom_spend::tag_enforcement_test_SpendRule ... ok
+test custom_spend::tests::rules_produce_distinct_token_types ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.00s
+EXIT=0

@@ -1,0 +1,42 @@
+running 1 test
+Cell_read root (Fr): 3 ops, 9 field elements
+  op[0] dup 0 -> ["30"]
+  op[1] idx [<[-]: b1>] -> ["50", "01", "01", "-"]
+  op[2] popeq <[3412]: f> -> ["0c", "01", "fffffffffefffffffe5bfeff02a4bd5305d8a10908d83933487d9d2953a7ed73", "3412"]
+Cell_read token type ([u8;32]): 3 ops, 10 field elements
+  op[0] dup 0 -> ["30"]
+  op[1] idx [<[01]: b1>] -> ["50", "01", "01", "01"]
+  op[2] popeq <[abababababababababababababababababababababababababababababababab]: b32> -> ["0c", "01", "20", "ab", "ababababababababababababababababababababababababababababababab"]
+Cell_read admin (Fr): 3 ops, 9 field elements
+  op[0] dup 0 -> ["30"]
+  op[1] idx [<[02]: b1>] -> ["50", "01", "01", "02"]
+  op[2] popeq <[77]: f> -> ["0c", "01", "fffffffffefffffffe5bfeff02a4bd5305d8a10908d83933487d9d2953a7ed73", "77"]
+Cell_write root (Fr): 5 ops, 12 field elements
+  op[0] idxp [] -> []
+  op[1] push <[-]: b1> -> ["10", "01", "01", "01", "-"]
+  op[2] pushs <[3412]: f> -> ["11", "01", "01", "fffffffffefffffffe5bfeff02a4bd5305d8a10908d83933487d9d2953a7ed73", "3412"]
+  op[3] ins 1 -> ["91"]
+  op[4] insc 0 -> ["a0"]
+Cell_write token type: 5 ops, 13 field elements
+  op[0] idxp [] -> []
+  op[1] push <[01]: b1> -> ["10", "01", "01", "01", "01"]
+  op[2] pushs <[abababababababababababababababababababababababababababababababab]: b32> -> ["11", "01", "01", "20", "ab", "ababababababababababababababababababababababababababababababab"]
+  op[3] ins 1 -> ["91"]
+  op[4] insc 0 -> ["a0"]
+claim spend authorization (effects[9], Fr): 6 ops, 14 field elements
+  op[0] swap 0 -> ["40"]
+  op[1] idxpc [<[09]: b1>] -> ["80", "01", "01", "09"]
+  op[2] push <[5555]: f> -> ["10", "01", "01", "fffffffffefffffffe5bfeff02a4bd5305d8a10908d83933487d9d2953a7ed73", "5555"]
+  op[3] push null -> ["10", "-"]
+  op[4] insc 2 -> ["a2"]
+  op[5] swap 0 -> ["40"]
+claim output coverage (effects[10], [u8;32]): 6 ops, 15 field elements
+  op[0] swap 0 -> ["40"]
+  op[1] idxpc [<[0a]: b1>] -> ["80", "01", "01", "0a"]
+  op[2] push <[cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd]: b32> -> ["10", "01", "01", "20", "cd", "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"]
+  op[3] push null -> ["10", "-"]
+  op[4] insc 2 -> ["a2"]
+  op[5] swap 0 -> ["40"]
+test print_gate_program_layout ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+EXIT=0

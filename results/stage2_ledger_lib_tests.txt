@@ -1,0 +1,112 @@
+running 91 tests
+test dust::tag_enforcement_test_DustCommitment ... ok
+test annotation::tag_enforcement_test_NightAnn ... ok
+test dust::tag_enforcement_test_DustActions ... ok
+test dust::tag_enforcement_test_DustActionsSigningEnvelope ... ok
+test dust::tag_enforcement_test_DustGenerationState ... ok
+test dust::tag_enforcement_test_DustGenerationInfo ... ok
+test dust::tag_enforcement_test_DustGenerationUniquenessInfo ... ok
+test dust::tag_enforcement_test_DustLocalState ... ok
+test dust::tag_enforcement_test_DustNullifier ... ok
+test dust::tag_enforcement_test_DustOutput ... ok
+test dust::tag_enforcement_test_DustParameters ... ok
+test dust::tag_enforcement_test_DustPublicKey ... ok
+test dust::tag_enforcement_test_DustPreProjection ... ok
+test dust::tag_enforcement_test_DustRegistration ... ok
+test dust::tag_enforcement_test_DustSecretKey ... ok
+test dust::tag_enforcement_test_DustRegistrationSigningEnvelope ... ok
+test dust::tag_enforcement_test_DustSpend ... ok
+test dust::tag_enforcement_test_DustState ... ok
+test dust::tag_enforcement_test_DustUtxoState ... ok
+test dust::tag_enforcement_test_DustWalletUtxoState ... ok
+test dust::tag_enforcement_test_InitialNonce ... ok
+test dust::tag_enforcement_test_QualifiedDustOutput ... ok
+test events::tag_enforcement_test_Event ... ok
+test events::tag_enforcement_test_EventSource ... ok
+test events::tag_enforcement_test_EventDetails ... ok
+test dust::tests::encryption_key_derivation_matches_test_vectors ... ok
+test events::tag_enforcement_test_ZswapPreimageEvidence ... ok
+test prove::tests::a_mock_proof_serializes_to_the_size_it_stands_in_for ... ok
+test prove::tests::test_mock_proving ... ok
+test prove::tests::test_mock_proving_tokio ... ok
+test semantics::tests::bridge_claim_not_enough_available ... ok
+test semantics::tests::bridge_transfer_passes_invariant ... ok
+test semantics::tests::bridge_transfer_sub_minimum_passes_invariant ... ok
+test semantics::tests::insert_updates_annotation ... ok
+test semantics::tests::multiple_inserts_accumulate ... ok
+test semantics::tests::remove_one_of_many ... ok
+test semantics::tests::remove_updates_annotation ... ok
+test semantics::tests::rewards_claim_not_enough_available ... ok
+test semantics::tests::simple_bridge_claim ... ok
+test structure::tag_enforcement_test_CNightGeneratesDustActionType ... ok
+test semantics::tests::simple_rewards_claim ... ok
+test structure::tag_enforcement_test_CNightGeneratesDustEvent ... ok
+test structure::tag_enforcement_test_CardanoBridge ... ok
+test structure::tag_enforcement_test_ClaimKind ... ok
+test structure::tag_enforcement_test_ClaimRewardsTransaction ... ok
+test structure::tag_enforcement_test_ContractAction ... ok
+test structure::tag_enforcement_test_ContractCall ... ok
+test structure::tag_enforcement_test_ContractDeploy ... ok
+test structure::tag_enforcement_test_ContractOperationVersion ... ok
+test structure::tag_enforcement_test_InnerIntentPedersenEnvelope ... ok
+test structure::tag_enforcement_test_ContractOperationVersionedVerifierKey ... ok
+test structure::tag_enforcement_test_InnerIntentSigningEnvelope ... ok
+test structure::tag_enforcement_test_Intent ... ok
+test structure::tag_enforcement_test_IntentHash ... ok
+test structure::tag_enforcement_test_IntentPedersenEnvelope ... ok
+test structure::tag_enforcement_test_IntentSigningEnvelope ... ok
+test structure::tag_enforcement_test_LedgerParameters ... ok
+test structure::tag_enforcement_test_LedgerState ... ok
+test structure::tag_enforcement_test_MaintenanceUpdateSigningEnvelope ... ok
+test structure::tag_enforcement_test_MaintenanceUpdate ... ok
+test structure::tag_enforcement_test_OutputInstructionShielded ... ok
+test structure::tag_enforcement_test_OutputInstructionUnshielded ... ok
+test structure::tag_enforcement_test_ProofVersioned ... ok
+test structure::tag_enforcement_test_ProofPreimageVersioned ... ok
+test structure::tag_enforcement_test_ReplayProtectionState ... ok
+test structure::tag_enforcement_test_Signature ... ok
+test structure::tag_enforcement_test_SignaturesValue ... ok
+test structure::tag_enforcement_test_SignatureVerifyingKey ... ok
+test structure::tag_enforcement_test_SigningKey ... ok
+test structure::tag_enforcement_test_SingleUpdate ... ok
+test structure::tag_enforcement_test_StandardTransaction ... ok
+test structure::tag_enforcement_test_SystemTransaction ... ok
+test structure::tag_enforcement_test_Transaction ... ok
+test structure::tag_enforcement_test_TransactionCostModel ... ok
+test structure::tag_enforcement_test_TransactionHash ... ok
+test structure::tag_enforcement_test_TransactionIdentifier ... ok
+test structure::tag_enforcement_test_TransactionLimits ... ok
+test structure::tag_enforcement_test_UnshieldedOfferSigningEnvelope ... ok
+test structure::tag_enforcement_test_UnshieldedOffer ... ok
+test structure::tag_enforcement_test_Utxo ... ok
+test structure::tag_enforcement_test_UtxoMeta ... ok
+test structure::tag_enforcement_test_UtxoOutput ... ok
+test structure::tag_enforcement_test_UtxoSpend ... ok
+test structure::tag_enforcement_test_UtxoState ... ok
+test structure::tests::test_max_price_adjustment ... ok
+test structure::tests::test_genesis_state ... ok
+test structure::tests::test_state_serialized ... ok
+test verify::sparse_unshielded_signature_tests::sparse_signature_offer_rejected_by_well_formed ... ok
+test verify::sparse_unshielded_signature_tests::malformed_sparse_signature_array_rejected_on_deserialize ... ok
+test verify::sparse_unshielded_signature_tests::dense_signature_array_round_trips_and_validates ... ok
+test prove::tests::test_resolver_resolves ... FAILED
+failures:
+---- prove::tests::test_resolver_resolves stdout ----
+resolver fails to resolve the following keys:
+  'zswap/9/spend.verifier': Failed to fetch data from https://srs.midnight.network/zswap/9/spend.verifier after 3 attempts. Giving up.
+thread 'prove::tests::test_resolver_resolves' (22497) panicked at ledger/src/prove.rs:547:13:
+explicit panic
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: core::panicking::panic
+   3: midnight_ledger_v10::prove::tests::test_resolver_resolves::{closure#0}
+   4: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+   5: midnight_ledger_v10::prove::tests::test_resolver_resolves
+   6: <midnight_ledger_v10::prove::tests::test_resolver_resolves::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+failures:
+    prove::tests::test_resolver_resolves
+test result: FAILED. 90 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.01s
+error: test failed, to rerun pass `-p midnight-ledger-v10 --lib`
+EXIT=101

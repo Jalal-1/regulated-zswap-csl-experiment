@@ -1,0 +1,5 @@
+chain3 start 2026-10-25T16:37:59Z
+onchain-runtime done 2026-10-25T16:39:16Z
+zkir lib done 2026-10-25T16:39:35Z
+ledger lib done 2026-10-25T16:41:59Z
+chain3 end 2026-10-25T16:45:50Z

@@ -1,0 +1,33 @@
+running 12 tests
+test context::shielded_mint_key_tests::serde_effects_roundtrip_spend_rules ... ok
+test context::shielded_mint_key_tests::vm_value_roundtrip_spend_rules ... ok
+test context::tag_enforcement_test_BlockContext ... ok
+test context::tag_enforcement_test_ClaimedContractCallsValue ... ok
+test context::proptest_random_data_deserialize_Effects ... ok
+test context::tag_enforcement_test_ClaimedUnshieldedSpendsKey ... ok
+test context::tag_enforcement_test_Effects ... ok
+test context::tag_enforcement_test_ShieldedMintKey ... ok
+test transcript::tag_enforcement_test_Transcript ... ok
+test transcript::tag_enforcement_test_TranscriptVersion ... ok
+test context::proptest_serialized_size_Effects ... ok
+test context::proptest_deserialize_Effects ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.00s
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 11 tests
+test tests::cell_flow ... ok
+test tests::counter_overflow ... ok
+test tests::counter_flow ... ok
+test tests::individual_vm_instructions ... ok
+test tests::map_flow ... ok
+test tests::run_program_step_limited_respects_limit ... ok
+test tests::set_flow ... ok
+test tests::test_context_self ... ok
+test tests::list_flow ... ok
+test tests::merkle_tree_flow ... ok
+test tests::historic_merkle_tree_flow ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+   Doc-tests midnight_onchain_runtime
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+EXIT=0

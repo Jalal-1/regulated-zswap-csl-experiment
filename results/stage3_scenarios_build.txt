@@ -1,0 +1,2 @@
+  Executable tests/csl_regulated_transfer.rs (target/release/deps/csl_regulated_transfer-1e57ae801ddcf938)
+EXIT=0

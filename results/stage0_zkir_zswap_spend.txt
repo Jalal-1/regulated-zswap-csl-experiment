@@ -1,0 +1,7 @@
+# 2026-10-25T15:48:56Z commit fa995fa5791bc19112e97334a2d9265751c35fad MIDNIGHT_PP=/tmp/claude-0/-home-user-wea-japan-pos-poc/8fb10d81-7d79-5e0b-88f5-274972519579/scratchpad/params
+running 2 tests
+test vk_is_byte_identical_to_shipped_spend_verifier ... ok
+test proofs_verify_against_shipped_verifier_key ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.88s
+EXIT=0
+# end 2026-10-25T15:52:35Z

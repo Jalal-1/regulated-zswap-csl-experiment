@@ -1,0 +1,62 @@
+running 8 tests
+test t01_approved_to_approved_is_accepted ... ok
+test t02_revoked_sender_cannot_move_the_coin ... stale transaction rejected at verification: TransactionApplicationError(IntentTtlExpired(Timestamp(604955), Timestamp(604965)))
+thread 't02_revoked_sender_cannot_move_the_coin' (23953) panicked at ledger/tests/csl_regulated_transfer.rs:90:5:
+a revoked sender must not be able to prove a gate call
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: csl_regulated_transfer::t02_revoked_sender_cannot_move_the_coin::{closure#0}
+   3: <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<<tokio::runtime::scheduler::current_thread::CoreGuard>::enter<<tokio::runtime::scheduler::current_thread::CoreGuard>::block_on<core::pin::Pin<&mut core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>>::{closure#0}, core::option::Option<()>>::{closure#0}, (alloc::boxed::Box<tokio::runtime::scheduler::current_thread::Core>, core::option::Option<()>)>
+   4: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+   5: <csl_regulated_transfer::t02_revoked_sender_cannot_move_the_coin::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+FAILED
+test t04_unapproved_recipient_cannot_be_proven ... 
+thread 't04_unapproved_recipient_cannot_be_proven' (24044) panicked at ledger/tests/csl_regulated_transfer.rs:169:5:
+the gate must not prove eligibility of an unapproved recipient
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: csl_regulated_transfer::t04_unapproved_recipient_cannot_be_proven::{closure#0}
+   3: <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<<tokio::runtime::scheduler::current_thread::CoreGuard>::enter<<tokio::runtime::scheduler::current_thread::CoreGuard>::block_on<core::pin::Pin<&mut core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>>::{closure#0}, core::option::Option<()>>::{closure#0}, (alloc::boxed::Box<tokio::runtime::scheduler::current_thread::Core>, core::option::Option<()>)>
+   4: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+   5: <csl_regulated_transfer::t04_unapproved_recipient_cannot_be_proven::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+FAILED
+test t06_omitted_gate_call_is_rejected ... ok
+test t07_substituted_sender_is_rejected ... ok
+test t08_output_to_unchecked_recipient_is_rejected ... ok
+test t13_attacker_chosen_root_cannot_be_proven ... 
+thread 't13_attacker_chosen_root_cannot_be_proven' (24126) panicked at ledger/tests/csl_regulated_transfer.rs:187:5:
+a proof against a root the ledger does not hold must not exist
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: csl_regulated_transfer::t13_attacker_chosen_root_cannot_be_proven::{closure#0}
+   3: <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<<tokio::runtime::scheduler::current_thread::CoreGuard>::enter<<tokio::runtime::scheduler::current_thread::CoreGuard>::block_on<core::pin::Pin<&mut core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>>::{closure#0}, core::option::Option<()>>::{closure#0}, (alloc::boxed::Box<tokio::runtime::scheduler::current_thread::Core>, core::option::Option<()>)>
+   4: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+   5: <csl_regulated_transfer::t13_attacker_chosen_root_cannot_be_proven::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+FAILED
+test t24_wrong_admin_secret_cannot_update_root ... 
+thread 't24_wrong_admin_secret_cannot_update_root' (24156) panicked at ledger/tests/csl_regulated_transfer.rs:197:5:
+an unauthorized administrator must not be able to prove an update
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: csl_regulated_transfer::t24_wrong_admin_secret_cannot_update_root::{closure#0}
+   3: <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<<tokio::runtime::scheduler::current_thread::CoreGuard>::enter<<tokio::runtime::scheduler::current_thread::CoreGuard>::block_on<core::pin::Pin<&mut core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>>::{closure#0}, core::option::Option<()>>::{closure#0}, (alloc::boxed::Box<tokio::runtime::scheduler::current_thread::Core>, core::option::Option<()>)>
+   4: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+   5: <csl_regulated_transfer::t24_wrong_admin_secret_cannot_update_root::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+FAILED
+failures:
+failures:
+    t02_revoked_sender_cannot_move_the_coin
+    t04_unapproved_recipient_cannot_be_proven
+    t13_attacker_chosen_root_cannot_be_proven
+    t24_wrong_admin_secret_cannot_update_root
+test result: FAILED. 4 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 229.53s
+error: test failed, to rerun pass `-p midnight-ledger-v10 --test csl_regulated_transfer`
+EXIT=101
