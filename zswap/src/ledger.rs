@@ -320,7 +320,7 @@ mod tests {
                 .get(&coin.commitment(&Recipient::Contract(addr)))
                 .unwrap(),
         );
-        Input::new_contract_owned(&mut rng, &qcoin, None, addr, &state.filter(&[addr])).unwrap();
+        Input::new_contract_owned(&mut rng, &qcoin, None, addr, &state.filter(&[addr]), None).unwrap();
     }
 
     #[test]

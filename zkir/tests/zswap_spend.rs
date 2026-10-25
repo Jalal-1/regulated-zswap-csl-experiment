@@ -29,7 +29,8 @@ use transient_crypto::curve::{EmbeddedFr, Fr};
 use transient_crypto_old::proofs::{ParamsProver, VerifierKey};
 
 const PARAMS_DIR: &str = env!("MIDNIGHT_PP");
-const ZSWAP_STATIC: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../zswap/static");
+// Historical evidence: the pre-CSL spend circuit and its shipped verifier key.
+const ZSWAP_STATIC: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../zswap/static/legacy");
 
 fn params(k: u8) -> ParamsProver {
     ParamsProver::read(BufReader::new(

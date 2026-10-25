@@ -29,7 +29,7 @@ use storage::db::DB;
 use storage::db::InMemoryDB;
 use storage::{Storable, arena::Sp};
 use transient_crypto::commitment::Pedersen;
-use transient_crypto::curve::{EmbeddedFr, EmbeddedGroupAffine};
+use transient_crypto::curve::{EmbeddedFr, EmbeddedGroupAffine, Fr};
 #[cfg(feature = "proof-verifying")]
 use transient_crypto::hash::transient_commit;
 use transient_crypto::proofs::PARAMS_VERIFIER;
@@ -95,6 +95,28 @@ pub fn with_outputs<
 
 #[cfg(any(test, feature = "proof-verifying"))]
 const CADDR_OP_LEN: u32 = 12;
+
+#[cfg(all(test, feature = "proof-verifying"))]
+#[test]
+fn embedded_spend_verifier_key_is_the_csl_key() {
+    // The spend verifier key compiled into this crate is the CSL relation's key
+    // (`zswap/static/spend.verifier.csl.sha256`), not the legacy key that the
+    // data provider still serves for the IR proving path
+    // (`zswap/static/spend.verifier.sha256`, kept for download verification).
+    let embedded = hex::encode(base_crypto::hash::persistent_hash(SPEND_VK_RAW).0);
+    let expected = include_str!("../static/spend.verifier.csl.sha256")
+        .split_whitespace()
+        .next()
+        .expect("sidecar hash")
+        .to_owned();
+    assert_eq!(embedded, expected);
+    let legacy = include_str!("../static/legacy/spend.verifier.sha256")
+        .split_whitespace()
+        .next()
+        .expect("legacy sidecar hash")
+        .to_owned();
+    assert_ne!(embedded, legacy, "the legacy spend key must no longer be the embedded one");
+}
 
 #[cfg(test)]
 #[test]
@@ -190,7 +212,14 @@ impl<D: DB> Input<Proof, D> {
             (Fr, Fr),
             self.value_commitment.0
         ));
-        let mut statement = vec![0.into()];
+        // CSL: a guarded input carries its policy binding in the proof's first
+        // public input; an unguarded input must have proven `0` there.
+        let binding: Fr = self
+            .policy
+            .as_ref()
+            .map(|p| p.deref().binding)
+            .unwrap_or(0.into());
+        let mut statement = vec![binding];
         for op in with_outputs(prog.into_iter(), [true.into(), segment.into()].into_iter()) {
             op.field_repr(&mut statement);
         }

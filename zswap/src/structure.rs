@@ -17,6 +17,7 @@ use coin_structure::coin::{
     Commitment, Info as CoinInfo, Nullifier, PublicKey as CoinPublicKey, ShieldedTokenType,
     TokenType, UnshieldedTokenType,
 };
+use base_crypto::hash::HashOutput;
 use coin_structure::contract::ContractAddress;
 use derive_where::derive_where;
 use itertools::Itertools;
@@ -207,15 +208,32 @@ impl<P> AuthorizedClaim<P> {
     }
 }
 
+/// The public policy binding of a guarded (Custom Spend Logic) spend: the gate
+/// contract and entry point that must authorize it in the same segment, and the
+/// binding value the spend proof commits to in its first public input.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serializable, Serialize, Storable)]
+#[storable(base)]
+#[tag = "zswap-spend-policy-binding[v1]"]
+pub struct SpendPolicyBinding {
+    pub gate: ContractAddress,
+    pub entry_point_hash: HashOutput,
+    pub binding: Fr,
+}
+tag_enforcement_test!(SpendPolicyBinding);
+
 #[derive(Storable, Serialize)]
 #[derive_where(PartialEq, Eq, PartialOrd, Ord, Hash, Clone; P)]
-#[tag = "zswap-input[v2]"]
+#[tag = "zswap-input[v3]"]
 #[storable(db = D)]
 pub struct Input<P: Storable<D>, D: DB> {
     pub nullifier: Nullifier,
     pub value_commitment: Pedersen,
     pub contract_address: Option<Sp<ContractAddress, D>>,
     pub merkle_tree_root: MerkleTreeDigest,
+    /// `Some` for guarded coins: the verifier places `binding` in the proof's
+    /// first public input (`0` otherwise), and the ledger requires a matching
+    /// claimed authorization from `gate`/`entry_point_hash` in the same segment.
+    pub policy: Option<Sp<SpendPolicyBinding, D>>,
     pub proof: Arc<P>,
 }
 tag_enforcement_test!(Input<(), InMemoryDB>);
@@ -237,6 +255,7 @@ impl<P: Storable<D>, D: DB> Input<P, D> {
             value_commitment: self.value_commitment,
             contract_address: self.contract_address.clone(),
             merkle_tree_root: self.merkle_tree_root,
+            policy: self.policy.clone(),
             proof: Arc::new(()),
         }
     }
@@ -426,6 +445,7 @@ impl<P: Clone + Storable<D>, D: DB> Transient<P, D> {
                 .rehash()
                 .root()
                 .expect("rehashed tree must have root"),
+            policy: None,
             proof: self.proof_input.clone(),
         }
     }
@@ -471,7 +491,7 @@ tag_enforcement_test!(Delta);
 
 #[derive(Storable)]
 #[derive_where(PartialEq, Eq, PartialOrd, Ord, Clone; P)]
-#[tag = "zswap-offer[v5]"]
+#[tag = "zswap-offer[v6]"]
 #[storable(db = D)]
 /// A Zswap offer consists of a potentially unbalanced set of Zswap
 /// inputs/outputs.

@@ -397,6 +397,10 @@ struct SerdeEffects {
     unshielded_inputs: HashMap<SerdeTokenType, u128>,
     unshielded_outputs: HashMap<SerdeTokenType, u128>,
     claimed_unshielded_spends: HashMap<(SerdeTokenType, SerdePublicAddress), u128>,
+    #[serde(default)]
+    claimed_spend_authorizations: HashSet<Fr>,
+    #[serde(default)]
+    claimed_output_coverage: HashSet<String>,
 }
 
 impl<D: DB> From<Effects<D>> for SerdeEffects {
@@ -460,6 +464,16 @@ impl<D: DB> From<Effects<D>> for SerdeEffects {
                     let (tt, addr) = spends_key.into_inner();
                     ((hex_from_tt(tt), public_address_to_hex(addr)), val)
                 })
+                .collect(),
+            claimed_spend_authorizations: eff
+                .claimed_spend_authorizations
+                .iter()
+                .map(|b| *(*b).deref())
+                .collect(),
+            claimed_output_coverage: eff
+                .claimed_output_coverage
+                .iter()
+                .map(|cm| cm.0.0.encode_hex())
                 .collect(),
         }
     }
@@ -538,6 +552,13 @@ impl<D: DB> TryFrom<SerdeEffects> for Effects<D> {
                         storage::storage::HashMap<ClaimedUnshieldedSpendsKey, u128, D>,
                         _,
                     >>()?,
+            claimed_spend_authorizations: eff.claimed_spend_authorizations.into_iter().collect(),
+            claimed_output_coverage: eff
+                .claimed_output_coverage
+                .into_iter()
+                .map(|cm| Ok::<_, FromHexError>(CoinCommitment(HashOutput(FromHex::from_hex(cm)?))))
+                .collect::<Result<_, _>>()
+                .map_err(err_conv)?,
         })
     }
 }
@@ -737,7 +758,7 @@ impl Distribution<ClaimedContractCallsValue> for Standard {
 #[derive_where(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "proptest", derive(Arbitrary))]
 #[storable(db = D)]
-#[tag = "contract-effects[v4]"]
+#[tag = "contract-effects[v5]"]
 pub struct Effects<D: DB> {
     pub claimed_nullifiers: storage::storage::HashSet<Nullifier, D>,
     pub claimed_shielded_receives: storage::storage::HashSet<CoinCommitment, D>,
@@ -748,6 +769,14 @@ pub struct Effects<D: DB> {
     pub unshielded_inputs: storage::storage::HashMap<TokenType, u128, D>,
     pub unshielded_outputs: storage::storage::HashMap<TokenType, u128, D>,
     pub claimed_unshielded_spends: storage::storage::HashMap<ClaimedUnshieldedSpendsKey, u128, D>,
+    /// CSL: policy bindings of guarded zswap inputs this call authorizes
+    /// (effects index 9). The ledger matches them one-to-one against the
+    /// `policy` fields of the inputs in the call's logical segment.
+    pub claimed_spend_authorizations: storage::storage::HashSet<Fr, D>,
+    /// CSL: the output commitments this call has checked (effects index 10).
+    /// When a call claims anything under CSL, this must equal the full set of
+    /// output and transient commitments of its logical segment.
+    pub claimed_output_coverage: storage::storage::HashSet<CoinCommitment, D>,
 }
 tag_enforcement_test!(Effects<InMemoryDB>);
 
@@ -783,6 +812,8 @@ impl<D: DB> rand::distributions::Distribution<Effects<D>> for rand::distribution
             unshielded_inputs: vec![rng.r#gen(); 5].into_iter().collect(),
             unshielded_outputs: vec![rng.r#gen(); 5].into_iter().collect(),
             claimed_unshielded_spends: vec![rng.r#gen(); 5].into_iter().collect(),
+            claimed_spend_authorizations: vec![rng.r#gen(); 5].into_iter().collect(),
+            claimed_output_coverage: vec![rng.r#gen(); 5].into_iter().collect(),
         }
     }
 }
@@ -867,6 +898,18 @@ impl<'a, D: DB> From<&'a Effects<D>> for VmValue<D> {
                             })
                             .collect(),
                     ),
+                    StateValue::Map(
+                        eff.claimed_spend_authorizations
+                            .iter()
+                            .map(|k| ((**k).into(), StateValue::Null))
+                            .collect(),
+                    ),
+                    StateValue::Map(
+                        eff.claimed_output_coverage
+                            .iter()
+                            .map(|k| ((**k).into(), StateValue::Null))
+                            .collect(),
+                    ),
                 ]
                 .into(),
             ),
@@ -908,7 +951,7 @@ impl<D: DB> TryFrom<VmValue<D>> for Effects<D> {
             }
         }
         if let StateValue::Array(arr) = &val.value
-            && arr.len() == 9
+            && arr.len() == 11
         {
             return Ok(Effects {
                 claimed_nullifiers: map_from::<Nullifier, (), D>(arr.get(0).unwrap())?
@@ -934,6 +977,14 @@ impl<D: DB> TryFrom<VmValue<D>> for Effects<D> {
                 unshielded_inputs: map_from(arr.get(6).unwrap())?,
                 unshielded_outputs: map_from(arr.get(7).unwrap())?,
                 claimed_unshielded_spends: map_from(arr.get(8).unwrap())?,
+                claimed_spend_authorizations: map_from::<Fr, (), D>(arr.get(9).unwrap())?
+                    .iter()
+                    .map(|x| *x.0)
+                    .collect(),
+                claimed_output_coverage: map_from::<CoinCommitment, (), D>(arr.get(10).unwrap())?
+                    .iter()
+                    .map(|x| *x.0)
+                    .collect(),
             });
         }
         Err(TranscriptRejected::EffectDecodeError)

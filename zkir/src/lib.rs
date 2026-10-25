@@ -21,10 +21,21 @@ use transient_crypto::proofs::Proof;
 mod ir;
 pub mod ir_v1;
 mod ir_vm;
+pub mod csl_gate;
+pub mod csl_whitelist;
 pub mod zswap_spend;
+pub mod zswap_spend_csl;
 
 pub use ir::{Instruction, IrMinorVersion, IrSource};
 pub use ir_vm::Preprocessed;
+
+/// Key locations proven by hand-written relations (the regulated ZSwap CSL
+/// experiment) rather than by interpreting ZKIR: the zswap spend circuit and
+/// the CSL gate contract's entry points. They carry no IR and no stored keys.
+pub fn is_native_relation(key_location: &str) -> bool {
+    key_location == zswap_spend_csl::SPEND_KEY_LOCATION
+        || key_location.starts_with(csl_gate::KEY_PREFIX)
+}
 
 /// Implements `ProvingProvider` locally, dispatching V0/V1 circuits through
 /// the old (zk-stdlib v1) pipeline and V2+ through the current pipeline.
@@ -48,6 +59,10 @@ impl<
         &self,
         preimage: &transient_crypto::proofs::ProofPreimage,
     ) -> Result<Vec<Option<usize>>, anyhow::Error> {
+        if is_native_relation(&preimage.key_location.0) {
+            // Hand-written relations have no untaken branches: every op is active.
+            return Ok(vec![None; 256]);
+        }
         let proving_data = self
             .resolver
             .resolve_key(preimage.key_location.clone())
@@ -71,6 +86,15 @@ impl<
         let mut preimage = preimage.clone();
         if let Some(binding_input) = overwrite_binding_input {
             preimage.binding_input = binding_input;
+        }
+
+        // Regulated ZSwap CSL experiment: zswap spends are proven with the
+        // hand-written CSL relation rather than by interpreting the shipped IR.
+        if &*preimage.key_location.0 == zswap_spend_csl::SPEND_KEY_LOCATION {
+            return zswap_spend_csl::prove_from_preimage(self.rng, self.params, &preimage).await;
+        }
+        if preimage.key_location.0.starts_with(csl_gate::KEY_PREFIX) {
+            return csl_gate::prove_from_preimage(self.rng, self.params, &preimage).await;
         }
 
         // Resolve to determine the IR version.

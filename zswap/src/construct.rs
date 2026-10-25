@@ -16,11 +16,13 @@ use crate::filter_invalid;
 use crate::structure::*;
 use crate::{ZSWAP_TREE_HEIGHT, ciphertext_to_field};
 use base_crypto::fab::AlignedValue;
+use base_crypto::hash::HashOutput;
 use coin_structure::coin::{
     self, Commitment, Info as CoinInfo, QualifiedInfo as QualifiedCoinInfo,
     SecretKey as CoinSecretKey,
 };
 use coin_structure::contract::ContractAddress;
+use coin_structure::custom_spend::{SpendRule, TokenDerivation, csl_policy_binding, fr_pair};
 use coin_structure::transfer::{Recipient, SenderEvidence};
 use midnight_onchain_runtime::ops::{Key, Op};
 use midnight_onchain_runtime::program_fragments::*;
@@ -91,6 +93,7 @@ impl<D: DB> Input<ProofPreimage, D> {
         segment: Option<u16>,
         contract: ContractAddress,
         tree: &MerkleTree<A, D>,
+        derivation: Option<&TokenDerivation>,
     ) -> Result<Self, OfferCreationFailed> {
         Self::new_from_secret_key::<A, R>(
             rng,
@@ -98,6 +101,7 @@ impl<D: DB> Input<ProofPreimage, D> {
             segment,
             SenderEvidence::Contract(contract),
             tree,
+            derivation,
         )
     }
 
@@ -138,12 +142,15 @@ impl<D: DB> Input<ProofPreimage, D> {
         }
     }
 
+    /// `derivation` carries the token-type derivation inputs the CSL spend
+    /// circuit re-derives (`None` is only valid for the native, all-zero type).
     pub(crate) fn new_from_secret_key<A: Debug + Storable<D>, R: Rng + CryptoRng + ?Sized>(
         rng: &mut R,
         coin: &QualifiedCoinInfo,
         segment: Option<u16>,
         sk: SenderEvidence<'_>,
         tree: &MerkleTree<A, D>,
+        derivation: Option<&TokenDerivation>,
     ) -> Result<Self, OfferCreationFailed> {
         let rc_e: EmbeddedFr = rng.r#gen();
         let rc = Fr::try_from(rc_e).expect("Fr should be larger than EmbeddedFr");
@@ -193,7 +200,41 @@ impl<D: DB> Input<ProofPreimage, D> {
             value_commitment.0
         ));
         let Commitment(hash) = CoinInfo::from(coin).commitment(&sk.clone().into());
+        // CSL witness prefix: rule kind, domain separator, minting address, gate, entry point.
+        let zero32 = HashOutput([0u8; 32]);
+        let (rule_kind, domain_sep, mint_address, gate, ep_hash, policy) = match derivation {
+            None => (0u64, zero32, ContractAddress(zero32), ContractAddress(zero32), zero32, None),
+            Some(d) => match &d.rule {
+                SpendRule::Empty => (0u64, d.domain_sep, d.mint_address, ContractAddress(zero32), zero32, None),
+                SpendRule::GateContract(gate, ep_hash) => {
+                    let sender = match &sk {
+                        SenderEvidence::User(sk) => sk.public_key().0,
+                        SenderEvidence::Contract(addr) => addr.0,
+                    };
+                    let binding = csl_policy_binding(&nullifier, &sender, gate, ep_hash);
+                    (
+                        1u64,
+                        d.domain_sep,
+                        d.mint_address,
+                        *gate,
+                        *ep_hash,
+                        Some(SpendPolicyBinding {
+                            gate: *gate,
+                            entry_point_hash: *ep_hash,
+                            binding,
+                        }),
+                    )
+                }
+                SpendRule::GateCircuit(_) => return Err(OfferCreationFailed::UnsupportedSpendRule),
+            },
+        };
+        let binding_input: Fr = policy.as_ref().map(|p| p.binding).unwrap_or(0.into());
         let mut inputs = Vec::new();
+        inputs.push(Fr::from(rule_kind));
+        inputs.extend(fr_pair(&domain_sep.0));
+        inputs.extend(fr_pair(&mint_address.0.0));
+        inputs.extend(fr_pair(&gate.0.0));
+        inputs.extend(fr_pair(&ep_hash.0));
         sk.field_repr(&mut inputs);
         tree.path_for_leaf(coin.mt_index, ((), hash))
             .map_err(OfferCreationFailed::InvalidIndex)?
@@ -210,7 +251,7 @@ impl<D: DB> Input<ProofPreimage, D> {
             public_transcript_inputs,
             public_transcript_outputs: vec![true.into(), segment.unwrap_or(0).into()],
             inner_proofs: vec![],
-            binding_input: 0.into(),
+            binding_input,
             communications_commitment: None,
             key_location: KeyLocation(Cow::Borrowed("midnight/zswap/spend")),
         };
@@ -222,6 +263,7 @@ impl<D: DB> Input<ProofPreimage, D> {
                 _ => None,
             },
             merkle_tree_root,
+            policy: policy.map(Sp::new),
             proof: Arc::new(proof_preimage),
         };
         //debug_assert!(inp.well_formed().is_ok());
@@ -402,7 +444,7 @@ impl<D: DB> Transient<ProofPreimage, D> {
             .contract_address
             .clone()
             .ok_or(OfferCreationFailed::NotContractOwned)?;
-        let input = Input::new_contract_owned(rng, coin, segment, *addr.deref(), &tree)?;
+        let input = Input::new_contract_owned(rng, coin, segment, *addr.deref(), &tree, None)?;
         let io = Transient {
             nullifier: input.nullifier,
             coin_com: output.coin_com,

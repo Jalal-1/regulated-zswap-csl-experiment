@@ -88,6 +88,8 @@ pub enum OfferCreationFailed {
     NotContractOwned,
     TreeNotRehashed,
     MerkleTreeError(InvalidUpdate),
+    /// The coin's spend rule is not supported by the CSL spend circuit (e.g. `GateCircuit`).
+    UnsupportedSpendRule,
 }
 
 impl Display for OfferCreationFailed {
@@ -96,6 +98,10 @@ impl Display for OfferCreationFailed {
         match self {
             InvalidIndex(err) => write!(formatter, "{} -- write creating spend proof", err),
             Proving(err) => write!(formatter, "{} -- write creating Zswap proof", err),
+            UnsupportedSpendRule => write!(
+                formatter,
+                "the coin's spend rule is not supported by the CSL spend circuit"
+            ),
             NotContractOwned => write!(
                 formatter,
                 "attempted to spend a user-owned output as contract owned"

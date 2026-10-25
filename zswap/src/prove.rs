@@ -136,6 +136,7 @@ impl<D: DB> Input<ProofPreimage, D> {
             value_commitment: self.value_commitment,
             contract_address: self.contract_address.clone(),
             merkle_tree_root: self.merkle_tree_root,
+            policy: self.policy.clone(),
             proof: Arc::new(prover.prove(&self.proof, None).await?),
         })
     }
@@ -244,7 +245,7 @@ mod tests {
             .rehash();
 
         let inp =
-            Input::new_contract_owned(&mut rng, &qcoin, None, Default::default(), &tree).unwrap();
+            Input::new_contract_owned(&mut rng, &qcoin, None, Default::default(), &tree, None).unwrap();
         let inp_proven = inp.prove(provider.split()).await.unwrap();
         assert_eq!(inp_proven.proof.serialized_size(), INPUT_PROOF_SIZE);
 

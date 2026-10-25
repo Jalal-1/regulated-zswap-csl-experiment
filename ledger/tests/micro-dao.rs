@@ -348,6 +348,7 @@ async fn micro_dao_inner(mode: TestMode) {
                         None,
                         addr,
                         &state.ledger.zswap.coin_coms,
+                        None,
                     )
                     .unwrap();
                     let transient = ZswapTransient::new_from_contract_owned_output(
@@ -929,6 +930,7 @@ async fn micro_dao_inner(mode: TestMode) {
                         None,
                         addr,
                         &state.ledger.zswap.coin_coms,
+                        None,
                     )
                     .unwrap(),
                 ]

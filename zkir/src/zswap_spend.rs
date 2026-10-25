@@ -80,7 +80,7 @@ use crate::ir_v1::{
 pub const ZSWAP_TREE_HEIGHT: usize = 32;
 
 /// The number of primary witness inputs (matches `num_inputs` in the IR).
-const NUM_INPUTS: usize = 77;
+pub const NUM_INPUTS: usize = 77;
 
 /// The number of public inputs of the spend circuit, including the binding
 /// input.
@@ -95,16 +95,16 @@ pub const CN_DOMAIN_SEP: &[u8; 21] = b"midnight:zswap-cn[v1]";
 
 // Impact VM opcodes appearing (as field elements) in the spend transcript.
 // See `Op::field_repr` in `onchain-vm`.
-const OP_DUP_0: u64 = 0x30; // Dup { n: 0 }
-const OP_IDX_1: u64 = 0x50; // Idx { cached: false, push_path: false, 1-entry path }
-const OP_IDX_PP_1: u64 = 0x70; // Idx { cached: false, push_path: true, 1-entry path }
-const OP_PUSH: u64 = 0x10; // Push { storage: false }
-const OP_PUSH_S: u64 = 0x11; // Push { storage: true }
-const OP_MEMBER: u64 = 0x18; // Member
-const OP_POPEQ: u64 = 0x0C; // Popeq { cached: false }
-const OP_POPEQ_C: u64 = 0x0D; // Popeq { cached: true }
-const OP_INS_1: u64 = 0x91; // Ins { cached: false, n: 1 }
-const OP_INS_C_1: u64 = 0xA1; // Ins { cached: true, n: 1 }
+pub const OP_DUP_0: u64 = 0x30; // Dup { n: 0 }
+pub const OP_IDX_1: u64 = 0x50; // Idx { cached: false, push_path: false, 1-entry path }
+pub const OP_IDX_PP_1: u64 = 0x70; // Idx { cached: false, push_path: true, 1-entry path }
+pub const OP_PUSH: u64 = 0x10; // Push { storage: false }
+pub const OP_PUSH_S: u64 = 0x11; // Push { storage: true }
+pub const OP_MEMBER: u64 = 0x18; // Member
+pub const OP_POPEQ: u64 = 0x0C; // Popeq { cached: false }
+pub const OP_POPEQ_C: u64 = 0x0D; // Popeq { cached: true }
+pub const OP_INS_1: u64 = 0x91; // Ins { cached: false, n: 1 }
+pub const OP_INS_C_1: u64 = 0xA1; // Ins { cached: true, n: 1 }
 
 /// Splits a 32-byte value into its circuit field representation:
 /// `[bytes[31], LE(bytes[0..31])]`, mirroring `FieldRepr` for `[u8; 32]`.

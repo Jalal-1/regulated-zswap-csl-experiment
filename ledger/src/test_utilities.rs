@@ -751,6 +751,9 @@ impl<'a, R: Rng + CryptoRng + SplittableRng> ProvingProvider for CombinedProofPr
         &self,
         preimage: &transient_crypto::proofs::ProofPreimage,
     ) -> Result<Vec<Option<usize>>, anyhow::Error> {
+        if zkir_v2::is_native_relation(&preimage.key_location.0) {
+            return self.zkir_v2.check(preimage).await;
+        }
         let key_material = self
             .resolver()
             .resolve_key(preimage.key_location.clone())
@@ -777,6 +780,9 @@ impl<'a, R: Rng + CryptoRng + SplittableRng> ProvingProvider for CombinedProofPr
         preimage: &transient_crypto::proofs::ProofPreimage,
         overwrite_binding_input: Option<Fr>,
     ) -> Result<transient_crypto::proofs::Proof, anyhow::Error> {
+        if zkir_v2::is_native_relation(&preimage.key_location.0) {
+            return self.zkir_v2.prove(preimage, overwrite_binding_input).await;
+        }
         let key_material = self
             .resolver()
             .resolve_key(preimage.key_location.clone())

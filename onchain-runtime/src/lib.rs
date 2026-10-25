@@ -24,6 +24,7 @@ pub mod error;
 #[rustfmt::skip]
 #[path = "../vendored/program_fragments.rs"]
 pub mod program_fragments;
+pub mod csl_fragments;
 pub mod contract_state_ext;
 pub mod test_utilities;
 pub mod transcript;

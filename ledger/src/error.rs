@@ -792,6 +792,21 @@ pub enum EffectsCheckError {
         commitments: Vec<(u16, Commitment, ContractAddress)>,
         claimed_shielded_receives: Vec<(u16, Commitment, ContractAddress)>,
     },
+    /// CSL: the policy bindings of guarded inputs and the spend authorizations
+    /// claimed by gate calls differ (keyed by logical segment, gate address,
+    /// entry point hash and binding).
+    SpendAuthorizationsNEClaimed {
+        inputs: Vec<(u16, ContractAddress, HashOutput, Fr)>,
+        claimed: Vec<(u16, ContractAddress, HashOutput, Fr)>,
+    },
+    /// CSL: a gate call claimed an output coverage that is not the full output
+    /// commitment set of its logical segment.
+    OutputCoverageNESegmentCommitments {
+        segment: u16,
+        gate: ContractAddress,
+        claimed: Vec<Commitment>,
+        actual: Vec<Commitment>,
+    },
 }
 
 impl std::fmt::Display for EffectsCheckError {
@@ -831,6 +846,19 @@ impl std::fmt::Display for EffectsCheckError {
             } => write!(
                 formatter,
                 "all contract-associated commitments must be claimed by exactly one instance of the same contract in the same segment. commitments: {commitments:?}, claimed_shielded_receives: {claimed_shielded_receives:?}"
+            ),
+            EffectsCheckError::SpendAuthorizationsNEClaimed { inputs, claimed } => write!(
+                formatter,
+                "every guarded (CSL) input must be authorized by exactly one claimed spend authorization of its gate in the same segment, and vice versa. inputs: {inputs:?}, claimed: {claimed:?}"
+            ),
+            EffectsCheckError::OutputCoverageNESegmentCommitments {
+                segment,
+                gate,
+                claimed,
+                actual,
+            } => write!(
+                formatter,
+                "the CSL gate {gate:?} must claim exactly the output commitments of segment {segment}. claimed: {claimed:?}, actual: {actual:?}"
             ),
         }
     }

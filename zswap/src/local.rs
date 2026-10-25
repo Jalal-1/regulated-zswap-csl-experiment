@@ -20,6 +20,7 @@ use base_crypto::repr::MemWrite;
 use coin_structure::coin::{
     self, Commitment, Info as CoinInfo, Nullifier, QualifiedInfo as QualifiedCoinInfo,
 };
+use coin_structure::custom_spend::TokenDerivation;
 use coin_structure::transfer::{Recipient, SenderEvidence};
 use derive_where::derive_where;
 use rand::{CryptoRng, Rng};
@@ -243,7 +244,29 @@ impl<D: DB> State<D> {
         coin: &QualifiedCoinInfo,
         segment: Option<u16>,
     ) -> Result<(State<D>, Input<ProofPreimage, D>), OfferCreationFailed> {
-        self.spend_from_tree(rng, secret_keys, coin, segment, &self.merkle_tree.clone())
+        self.spend_from_tree(rng, secret_keys, coin, segment, &self.merkle_tree.clone(), None)
+    }
+
+    /// Spends a coin whose token type is a contract-derived type: the CSL spend
+    /// circuit re-derives the type from `derivation`, and for a `GateContract`
+    /// rule the input carries the policy binding the gate must authorize.
+    #[instrument(skip(self, rng))]
+    pub fn spend_with_derivation<R: Rng + CryptoRng + ?Sized>(
+        &self,
+        rng: &mut R,
+        secret_keys: &SecretKeys,
+        coin: &QualifiedCoinInfo,
+        segment: Option<u16>,
+        derivation: &TokenDerivation,
+    ) -> Result<(State<D>, Input<ProofPreimage, D>), OfferCreationFailed> {
+        self.spend_from_tree(
+            rng,
+            secret_keys,
+            coin,
+            segment,
+            &self.merkle_tree.clone(),
+            Some(derivation),
+        )
     }
 
     #[instrument(skip(self, rng, tree))]
@@ -254,6 +277,7 @@ impl<D: DB> State<D> {
         coin: &QualifiedCoinInfo,
         segment: Option<u16>,
         tree: &MerkleTree<(), D>,
+        derivation: Option<&TokenDerivation>,
     ) -> Result<(State<D>, Input<ProofPreimage, D>), OfferCreationFailed> {
         let inp = Input::new_from_secret_key(
             rng,
@@ -261,6 +285,7 @@ impl<D: DB> State<D> {
             segment,
             SenderEvidence::User(Cow::Borrowed(&secret_keys.coin_secret_key)),
             tree,
+            derivation,
         )?;
         let res = State {
             pending_spends: self.pending_spends.insert(inp.nullifier, *coin),
@@ -282,7 +307,7 @@ impl<D: DB> State<D> {
             .try_update_hash(0, output.coin_com.0, ())
             .map_err(OfferCreationFailed::MerkleTreeError)?
             .rehash();
-        let (res, input) = self.spend_from_tree(rng, secret_keys, coin, segment, &tree)?;
+        let (res, input) = self.spend_from_tree(rng, secret_keys, coin, segment, &tree, None)?;
         let io = Transient {
             nullifier: input.nullifier,
             coin_com: output.coin_com,

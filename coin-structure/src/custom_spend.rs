@@ -58,6 +58,67 @@ pub enum SpendRule {
 }
 tag_enforcement_test!(SpendRule);
 
+/// Everything a wallet needs to re-derive a coin's token type inside the CSL
+/// spend circuit: the minting contract's address and domain separator, and
+/// the spend rule the type was minted under.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TokenDerivation {
+    pub domain_sep: HashOutput,
+    pub mint_address: ContractAddress,
+    pub rule: SpendRule,
+}
+
+impl TokenDerivation {
+    /// The token type these inputs derive.
+    pub fn token_type(&self) -> crate::coin::ShieldedTokenType {
+        self.mint_address
+            .custom_shielded_token_type(self.domain_sep, &self.rule)
+    }
+
+    /// The gate contract and entry point hash, for `GateContract` rules.
+    pub fn gate(&self) -> Option<(ContractAddress, HashOutput)> {
+        match &self.rule {
+            SpendRule::GateContract(address, ep_hash) => Some((*address, *ep_hash)),
+            _ => None,
+        }
+    }
+}
+
+/// Poseidon domain separator of the CSL policy binding.
+pub const CSL_BIND_DOMAIN_SEP: &[u8; 21] = b"midnight:csl-bind[v1]";
+
+/// Field constant for [`CSL_BIND_DOMAIN_SEP`].
+pub fn csl_bind_domain() -> transient_crypto::curve::Fr {
+    transient_crypto::curve::Fr::from_le_bytes(CSL_BIND_DOMAIN_SEP).expect("21 bytes fit in Fr")
+}
+
+/// Splits a 32-byte value into the `[hi, lo]` field pair the zswap circuits use:
+/// `hi` is the last byte, `lo` the first 31 bytes, both little-endian.
+pub fn fr_pair(bytes: &[u8; 32]) -> [transient_crypto::curve::Fr; 2] {
+    use transient_crypto::curve::Fr;
+    [
+        Fr::from_le_bytes(&bytes[31..]).expect("single byte fits in Fr"),
+        Fr::from_le_bytes(&bytes[..31]).expect("31 bytes fit in Fr"),
+    ]
+}
+
+/// The policy binding a guarded spend exposes in its first public input:
+/// `Poseidon(DOM, nullifier, sender, gate, ep_hash)`, where `sender` is the
+/// coin public key (user-owned coins) or the owning contract address.
+pub fn csl_policy_binding(
+    nullifier: &crate::coin::Nullifier,
+    sender: &HashOutput,
+    gate: &ContractAddress,
+    ep_hash: &HashOutput,
+) -> transient_crypto::curve::Fr {
+    let mut preimage = vec![csl_bind_domain()];
+    preimage.extend(fr_pair(&nullifier.0.0));
+    preimage.extend(fr_pair(&sender.0));
+    preimage.extend(fr_pair(&gate.0.0));
+    preimage.extend(fr_pair(&ep_hash.0));
+    transient_crypto::hash::transient_hash(&preimage)
+}
+
 impl SpendRule {
     /// A fixed-length (32-byte) commitment to this rule, appended to the
     /// token type derivation preimage for non-[`Empty`](SpendRule::Empty)
@@ -128,5 +189,50 @@ mod tests {
         .map(|rule| addr.custom_shielded_token_type(domain_sep, rule))
         .collect::<std::collections::HashSet<_>>();
         assert_eq!(types.len(), 4);
+    }
+
+    /// Pins the exact byte layout the CSL spend circuit re-derives in-circuit:
+    /// `descriptor_hash = SHA256("midnight:spend-rule[v1]:" || 0x02 || gate || ep_hash)` and
+    /// `type = SHA256(pad32("midnight:derive_token") || domain_sep || mint_address || descriptor_hash)`.
+    /// Any change to the tagged serialization of `SpendRule` or to the derivation must
+    /// also change the circuit constants, and this test is what catches the drift.
+    #[test]
+    fn descriptor_hash_matches_fixed_layout() {
+        use base_crypto::hash::persistent_hash;
+        let gate = ContractAddress(HashOutput([7u8; 32]));
+        let ep_hash = HashOutput([9u8; 32]);
+        let rule = SpendRule::GateContract(gate, ep_hash);
+
+        let mut descriptor_bytes = Vec::new();
+        descriptor_bytes.extend_from_slice(b"midnight:spend-rule[v1]:");
+        descriptor_bytes.push(2u8);
+        descriptor_bytes.extend_from_slice(&gate.0.0);
+        descriptor_bytes.extend_from_slice(&ep_hash.0);
+        assert_eq!(descriptor_bytes.len(), 89);
+        let descriptor_hash = persistent_hash(&descriptor_bytes);
+        assert_eq!(rule.descriptor_hash(), Some(descriptor_hash));
+
+        let domain_sep = HashOutput([2u8; 32]);
+        let mint = ContractAddress(HashOutput([5u8; 32]));
+        let mut preimage = Vec::new();
+        preimage.extend_from_slice(b"midnight:derive_token\0\0\0\0\0\0\0\0\0\0\0");
+        preimage.extend_from_slice(&domain_sep.0);
+        preimage.extend_from_slice(&mint.0.0);
+        preimage.extend_from_slice(&descriptor_hash.0);
+        assert_eq!(preimage.len(), 128);
+        assert_eq!(
+            mint.custom_shielded_token_type(domain_sep, &rule).0,
+            persistent_hash(&preimage)
+        );
+
+        let mut legacy = Vec::new();
+        legacy.extend_from_slice(b"midnight:derive_token\0\0\0\0\0\0\0\0\0\0\0");
+        legacy.extend_from_slice(&domain_sep.0);
+        legacy.extend_from_slice(&mint.0.0);
+        assert_eq!(legacy.len(), 96);
+        assert_eq!(
+            mint.custom_shielded_token_type(domain_sep, &SpendRule::Empty).0,
+            persistent_hash(&legacy)
+        );
     }
 }
