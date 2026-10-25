@@ -50,7 +50,9 @@ describe('Ledger API - ContractCallPrototype', () => {
         unshieldedMints: new Map(),
         unshieldedInputs: new Map(),
         unshieldedOutputs: new Map(),
-        claimedUnshieldedSpends: new Map()
+        claimedUnshieldedSpends: new Map(),
+        claimedSpendAuthorizations: [],
+        claimedOutputCoverage: []
       },
       program: ['new', { noop: { n: 5 } }]
     };

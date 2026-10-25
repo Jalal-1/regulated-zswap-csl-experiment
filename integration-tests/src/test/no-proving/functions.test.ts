@@ -286,7 +286,9 @@ describe('Ledger API - functions', () => {
       unshieldedMints: new Map(),
       unshieldedInputs: new Map(),
       unshieldedOutputs: new Map(),
-      claimedUnshieldedSpends: new Map()
+      claimedUnshieldedSpends: new Map(),
+      claimedSpendAuthorizations: [],
+      claimedOutputCoverage: []
     });
     expect(transcripts.at(0)?.at(0)?.gas.computeTime).toBeGreaterThanOrEqual(1n);
     expect(transcripts.at(1)?.at(0)?.program).toEqual([{ noop: { n: 1 } }]);
@@ -299,7 +301,9 @@ describe('Ledger API - functions', () => {
       unshieldedMints: new Map(),
       unshieldedInputs: new Map(),
       unshieldedOutputs: new Map(),
-      claimedUnshieldedSpends: new Map()
+      claimedUnshieldedSpends: new Map(),
+      claimedSpendAuthorizations: [],
+      claimedOutputCoverage: []
     });
     expect(transcripts.at(1)?.at(0)?.gas.computeTime).toBeGreaterThanOrEqual(1n);
   });

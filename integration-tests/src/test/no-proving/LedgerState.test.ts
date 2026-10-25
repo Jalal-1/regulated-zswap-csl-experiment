@@ -350,7 +350,9 @@ describe('Ledger API - LedgerState', () => {
           unshieldedMints: new Map(),
           unshieldedInputs: new Map(),
           unshieldedOutputs: new Map(),
-          claimedUnshieldedSpends: new Map()
+          claimedUnshieldedSpends: new Map(),
+          claimedSpendAuthorizations: [],
+          claimedOutputCoverage: []
         },
         program: [{ noop: { n: 5 } }]
       },

@@ -226,7 +226,9 @@ describe('Ledger API - QueryContext', () => {
       unshieldedMints: new Map(),
       unshieldedInputs: new Map(),
       unshieldedOutputs: new Map(),
-      claimedUnshieldedSpends: new Map()
+      claimedUnshieldedSpends: new Map(),
+      claimedSpendAuthorizations: [],
+      claimedOutputCoverage: []
     };
     queryContext.effects = effects;
 
@@ -310,7 +312,9 @@ describe('Ledger API - QueryContext', () => {
       unshieldedMints: new Map(),
       unshieldedInputs: new Map(),
       unshieldedOutputs: new Map(),
-      claimedUnshieldedSpends: new Map()
+      claimedUnshieldedSpends: new Map(),
+      claimedSpendAuthorizations: [],
+      claimedOutputCoverage: []
     };
     const program: Op<AlignedValue>[] = [
       {

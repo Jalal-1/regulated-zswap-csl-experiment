@@ -38,7 +38,9 @@ const EMPTY_EFFECTS = {
   unshieldedMints: new Map(),
   unshieldedInputs: new Map(),
   unshieldedOutputs: new Map(),
-  claimedUnshieldedSpends: new Map()
+  claimedUnshieldedSpends: new Map(),
+  claimedSpendAuthorizations: [],
+  claimedOutputCoverage: []
 };
 
 const ENTRY_POINT = 'doLog';

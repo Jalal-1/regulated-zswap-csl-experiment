@@ -399,6 +399,20 @@ export type Effects = {
    * The unshielded UTXO outputs this contract expects to be present.
    */
   claimedUnshieldedSpends: Map<[TokenType, PublicAddress], bigint>,
+  /**
+   * Regulated ZSwap CSL: the policy bindings of the guarded shielded inputs
+   * this call authorizes (effects index 9). The ledger matches them
+   * one-to-one against the `policy` fields of the inputs in the call's
+   * logical segment.
+   */
+  claimedSpendAuthorizations: Fr[],
+  /**
+   * Regulated ZSwap CSL: the output commitments this call has checked
+   * (effects index 10). When a call claims anything under CSL, this must
+   * equal the full set of output and transient commitments of its logical
+   * segment.
+   */
+  claimedOutputCoverage: CoinCommitment[],
 };
 
 /**
