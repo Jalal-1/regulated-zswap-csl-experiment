@@ -209,13 +209,14 @@ Outcome of the real-proving workflow. The run on `03d51e59` is the first complet
 step was introduced there); `b047cf77` differs from it by one doc comment. The pinned commit
 `8b3571f4` adds only TypeScript declarations and JavaScript test literals on top of `b047cf77`: its
 Rust sources, keys and workflow are byte-identical. Trimmed logs:
-`results/ci_csl_real_proving_03d51e59.txt`, `results/ci_csl_real_proving_b047cf77.txt`.
+`results/ci_csl_real_proving_03d51e59.txt`, `results/ci_csl_real_proving_b047cf77.txt`,
+`results/ci_csl_real_proving_8b3571f4.txt`.
 
 | Run | Result |
 | --- | --- |
 | `csl-real-proving` on `03d51e59`, job "CSL scenarios and regressions (real proofs)" ([run 40239225403](https://github.com/Jalal-1/regulated-zswap-csl-experiment/actions/runs/40239225403)) | **passed**, 32 minutes on a GitHub-hosted 4-vCPU runner, rustc 1.99.1. `mock-verify` occurrences in the resolved feature graph: 0 for all five crates. All nine compiled zswap files matched the pinned hashes. Suites: coin-structure 5; zkir library 10; `zswap_spend` 2; `zswap_spend_csl` 5 (1 ignored); zswap 20 + 2; onchain-runtime 12 + 11; ledger library 91; `csl_baseline` 3 (42.5 s); `csl_regulated_transfer` 9 (231.0 s); `csl_regression` 14 (344.4 s). Embedded spend verifier hash `bb6033fb…e932`, equal to its pin. |
 | `csl-real-proving` on `b047cf77` ([run 40239592300](https://github.com/Jalal-1/regulated-zswap-csl-experiment/actions/runs/40239592300)) | **passed**, 32 minutes, same runner class and toolchain. Same zero `mock-verify` count, same nine hash matches, same suite counts: coin-structure 5; zkir library 10; `zswap_spend` 2; `zswap_spend_csl` 5 (1 ignored); zswap 20 + 2 (including `embedded_spend_verifier_key_is_the_csl_key`); onchain-runtime 12 + 11; ledger library 91; `csl_baseline` 3 (43.7 s); `csl_regulated_transfer` 9 (230.4 s); `csl_regression` 14 (345.1 s). Embedded spend verifier hash `bb6033fb…e932`, equal to its pin. Run metadata uploaded as the `csl-run-metadata` artifact. |
-| `csl-real-proving` on `8b3571f4` (the pinned commit) | in progress at the time of writing ([run 40243311037](https://github.com/Jalal-1/regulated-zswap-csl-experiment/actions/runs/40243311037)); its outcome is recorded in the next revision of this file |
+| `csl-real-proving` on `8b3571f4` (the pinned commit) ([run 40243311037](https://github.com/Jalal-1/regulated-zswap-csl-experiment/actions/runs/40243311037)) | **passed**, 26 minutes (warm cache), same runner class and toolchain, same zero `mock-verify` count, same nine hash matches, same suite counts; `csl_baseline` 3 (42.6 s), `csl_regulated_transfer` 9 (229.5 s), `csl_regression` 14 (344.9 s); embedded spend verifier hash equal to its pin. Trimmed log `results/ci_csl_real_proving_8b3571f4.txt`, metadata `results/csl_run_metadata_8b3571f4_part*.json`. |
 
 Outcome of the upstream `ci.yml` on `b047cf77` ([run 40239592295](https://github.com/Jalal-1/regulated-zswap-csl-experiment/actions/runs/40239592295)):
 
@@ -233,7 +234,7 @@ Outcome of the upstream `ci.yml` on `b047cf77` ([run 40239592295](https://github
   `functions > should return 2 transcripts from partition transcripts`) compare an `Effects` object
   against a literal written for the nine upstream fields. The experiment's `Effects` has two more,
   `claimedSpendAuthorizations` (effects index 9) and `claimedOutputCoverage` (index 10), and the
-  wasm serializes them as two further (empty) arrays, so deep equality fails. Fixed in `8b3571f4` (TypeScript type and test literals); outcome of that commit's `integration-tests` job: in progress at the time of writing ([run 40243311125](https://github.com/Jalal-1/regulated-zswap-csl-experiment/actions/runs/40243311125)).
+  wasm serializes them as two further (empty) arrays, so deep equality fails. Fixed in `8b3571f4` (TypeScript type and test literals): that commit's `integration-tests` job ([run 40243311125](https://github.com/Jalal-1/regulated-zswap-csl-experiment/actions/runs/40243311125)) passes 782 of 791 tests, with exactly the three proof-server tests below failing and the same `Expected 77 inputs, received 87` reason.
 - *Three `proving` tests* (`Transient` ×2, `TransactionBig`) prove zswap inputs through the
   **proof server** (`proof-server` crate, started by the test harness; `MN_AXIOS=true`). The proof
   server proves a `midnight/zswap/spend` preimage by interpreting the shipped zswap IR with the
@@ -248,6 +249,11 @@ Outcome of the upstream `ci.yml` on `b047cf77` ([run 40239592295](https://github
   and `/prove-tx`, with its parameter provider. Recorded as a next step, not done here (the user's
   decision for this experiment was to leave node and service integration for later, and the fix
   prompt asked not to broaden scope).
+
+Upstream `ci.yml` on the pinned `8b3571f4` ([run 40243311125](https://github.com/Jalal-1/regulated-zswap-csl-experiment/actions/runs/40243311125)): `build-ledger` on all three
+runners, `build-proof-server` on both, and `build-wasm` pass; `check` fails on the pre-existing
+storage deprecation only (five identical errors, verified); `integration-tests` fails on the three
+proof-server tests only (782 of 791 pass).
 
 The full-suite job of `csl-real-proving` is skipped on pushes by design; it runs on the weekly schedule or on manual dispatch with `full_suite`. Pre-existing failures that the experiment does not touch and that are left as they are:
 
