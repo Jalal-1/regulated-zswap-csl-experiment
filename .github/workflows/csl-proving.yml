@@ -106,6 +106,24 @@ jobs:
             "$bin" compile-many "$art/$name/zkir" "$art/$name/keys"
           done
 
+      - name: Local parameters (compiled zswap and dust keys into the cache, as flake.nix local-params does)
+        run: |
+          set -euo pipefail
+          ver=$(tr -d '\n' < static/version)
+          art="$MIDNIGHT_LEDGER_TEST_STATIC_DIR"
+          for c in zswap dust; do
+            mkdir -p "$MIDNIGHT_PP/$c/$ver"
+            cp -a "$art/$c/zkir/." "$MIDNIGHT_PP/$c/$ver/"
+            cp -a "$art/$c/keys/." "$MIDNIGHT_PP/$c/$ver/"
+          done
+          # The data provider serves a cached file only if its SHA-256 matches the sidecar compiled
+          # into midnight-zswap (zswap/static/*.sha256). Check here so a mismatch fails early and loudly.
+          for f in spend.prover spend.verifier spend.bzkir output.prover output.verifier output.bzkir sign.prover sign.verifier sign.bzkir; do
+            exp=$(cut -c1-64 "zswap/static/$f.sha256"); got=$(sha256sum "$MIDNIGHT_PP/zswap/$ver/$f" | cut -c1-64)
+            [ "$exp" = "$got" ] || { echo "zswap/$ver/$f: compiled key differs from the pinned hash ($got != $exp)"; exit 1; }
+            echo "zswap/$ver/$f matches the pinned hash"
+          done
+
       - name: Unit suites touched by the change
         run: |
           cargo test --release -p midnight-coin-structure custom_spend
@@ -179,6 +197,24 @@ jobs:
             if [ "$ver" = "2" ]; then bin=.csl/bin/zkir-v2; else bin=.csl/bin/zkir-v3; fi
             "$bin" compile-many "$art/$name/zkir" "$art/$name/keys"
           done
+      - name: Local parameters (compiled zswap and dust keys into the cache, as flake.nix local-params does)
+        run: |
+          set -euo pipefail
+          ver=$(tr -d '\n' < static/version)
+          art="$MIDNIGHT_LEDGER_TEST_STATIC_DIR"
+          for c in zswap dust; do
+            mkdir -p "$MIDNIGHT_PP/$c/$ver"
+            cp -a "$art/$c/zkir/." "$MIDNIGHT_PP/$c/$ver/"
+            cp -a "$art/$c/keys/." "$MIDNIGHT_PP/$c/$ver/"
+          done
+          # The data provider serves a cached file only if its SHA-256 matches the sidecar compiled
+          # into midnight-zswap (zswap/static/*.sha256). Check here so a mismatch fails early and loudly.
+          for f in spend.prover spend.verifier spend.bzkir output.prover output.verifier output.bzkir sign.prover sign.verifier sign.bzkir; do
+            exp=$(cut -c1-64 "zswap/static/$f.sha256"); got=$(sha256sum "$MIDNIGHT_PP/zswap/$ver/$f" | cut -c1-64)
+            [ "$exp" = "$got" ] || { echo "zswap/$ver/$f: compiled key differs from the pinned hash ($got != $exp)"; exit 1; }
+            echo "zswap/$ver/$f matches the pinned hash"
+          done
+
       - name: Assert mock-verify absent
         run: |
           n=$(cargo tree -p midnight-ledger-v10 --features proving -e features | grep -c 'mock-verify' || true); echo "mock-verify occurrences: $n"; [ "$n" = "0" ]
