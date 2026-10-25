@@ -26,6 +26,7 @@ use midnight_ledger::semantics::TransactionResult;
 use midnight_ledger::structure::Transaction;
 use midnight_ledger::verify::WellFormedStrictness;
 use midnight_ledger_v10 as midnight_ledger;
+use rand::Rng;
 use transient_crypto::curve::Fr;
 
 fn bob_commitment(tx: &Transaction<midnight_ledger::structure::Signature, midnight_ledger::structure::ProofMarker, transient_crypto::commitment::PedersenRandomness, storage::db::InMemoryDB>) -> coin_structure::coin::Commitment {
@@ -57,8 +58,9 @@ async fn t01_approved_to_approved_is_accepted() {
 }
 
 /// T02 / T12: Alice is funded while approved, then removed. A proof she made
-/// before removal fails at application (the gate reads the current root), her
-/// coin is not consumed, and no new proof can be made.
+/// before removal verifies (it is valid for the old root) but fails when the
+/// ledger replays the gate's transcript against the current root; her coin is
+/// not consumed; and a fresh proof under the new root does not verify.
 #[tokio::test]
 async fn t02_revoked_sender_cannot_move_the_coin() {
     let mut f = fixture(0x02).await;
@@ -72,21 +74,20 @@ async fn t02_revoked_sender_cannot_move_the_coin() {
     // Monument removes Alice and publishes the new root.
     f.gate.whitelist.remove(f.alice.slot);
     publish_root(&mut f.state, &mut f.rng, &f.resolver, &mut f.gate).await;
-    // The stale transaction still verifies (its proofs are valid for the old
-    // root) but fails when the ledger replays the gate against current state.
+    // The stale transaction fails when the ledger replays the gate's root claim.
     let before = f.state.ledger.clone();
-    let result = f.state.apply(&stale, WellFormedStrictness::default());
-    match result {
-        Ok(TransactionResult::Success(_)) => panic!("a revoked sender's stale proof must not move the coin"),
-        Ok(other) => eprintln!("stale transaction rejected at application: {other:?}"),
-        Err(e) => eprintln!("stale transaction rejected at verification: {e:?}"),
-    }
+    let rej = apply_rejected(&mut f.state, &stale, WellFormedStrictness::default());
+    eprintln!("stale transfer: {}", rej.describe());
+    assert!(rej.is_transcript_failure(), "unexpected disposal of the stale transfer: {}", rej.describe());
     assert!(f.state.ledger.zswap.nullifiers.get(&nullifier).is_none(), "Alice's coin must not be consumed");
     assert_eq!(f.state.ledger.zswap.coin_coms_set.size(), before.zswap.coin_coms_set.size(), "no output may be created");
-    // A fresh proof is impossible: Alice has no membership path under the new root.
+    // A fresh attempt: Alice has no membership path under the new root, so the
+    // only proof she can make is invalid.
     let tx = regulated_transfer_tx(&f.state, &mut f.rng, &f.gate, &f.alice, &f.bob, &coin, &Default::default());
-    let fresh = pay_and_prove(&mut f.state, &mut f.rng, &f.resolver, tx).await;
-    assert!(fresh.is_err(), "a revoked sender must not be able to prove a gate call");
+    let rej = attempt(&mut f.state, &mut f.rng, &f.resolver, tx).await;
+    eprintln!("fresh transfer after removal: {}", rej.describe());
+    assert!(rej.is_invalid_proof(), "unexpected disposal of the fresh transfer: {}", rej.describe());
+    assert!(f.state.ledger.zswap.nullifiers.get(&nullifier).is_none(), "Alice's coin must not be consumed");
 }
 
 /// T06: a raw spend of the regulated coin with no gate call is rejected by the
@@ -156,42 +157,88 @@ async fn t08_output_to_unchecked_recipient_is_rejected() {
     );
 }
 
-/// T04: approved Alice -> unapproved Carol cannot be proven: Carol has no
-/// membership path under the published root.
+/// T04: approved Alice -> unapproved Carol. Carol has no membership path under
+/// the published root, so the gate's proof is invalid and strict verification
+/// rejects the transaction.
 #[tokio::test]
 async fn t04_unapproved_recipient_cannot_be_proven() {
     let mut f = fixture(0x04).await;
     let coin = regulated_coins(&f.state, &f.gate)[0];
     let carol = Party::new(&mut f.rng, 9);
     let tx = regulated_transfer_tx(&f.state, &mut f.rng, &f.gate, &f.alice, &carol, &coin, &Default::default());
-    let res = pay_and_prove(&mut f.state, &mut f.rng, &f.resolver, tx).await;
-    assert!(res.is_err(), "the gate must not prove eligibility of an unapproved recipient");
+    let nullifier = first_input_nullifier(&tx);
+    let rej = attempt(&mut f.state, &mut f.rng, &f.resolver, tx).await;
+    eprintln!("transfer to an unapproved recipient: {}", rej.describe());
+    assert!(rej.is_invalid_proof(), "unexpected disposal: {}", rej.describe());
+    assert!(f.state.ledger.zswap.nullifiers.get(&nullifier).is_none());
 }
 
-/// T13: membership proven against an attacker-chosen root is rejected: the
-/// gate's statement must carry the root the ledger replays.
+/// T13 (a): membership proven against an attacker-chosen root that the
+/// transcript also claims. The proof is valid for its own statement, but the
+/// ledger replays the root claim against the contract state and the
+/// transaction fails at application.
 #[tokio::test]
-async fn t13_attacker_chosen_root_cannot_be_proven() {
+async fn t13_attacker_chosen_root_fails_at_replay() {
     let mut f = fixture(0x13).await;
     let coin = regulated_coins(&f.state, &f.gate)[0];
     let mut forged = f.gate.whitelist.clone();
     let carol = Party::new(&mut f.rng, 9);
     forged.set(carol.slot, carol.leaf());
     let opts = TransferOptions {
-        root_override: Some((forged.root(), forged.path(f.alice.slot))),
+        whitelist_override: Some(&forged),
+        claim_forged_root: true,
         ..Default::default()
     };
     let tx = regulated_transfer_tx(&f.state, &mut f.rng, &f.gate, &f.alice, &f.bob, &coin, &opts);
-    let res = pay_and_prove(&mut f.state, &mut f.rng, &f.resolver, tx).await;
-    assert!(res.is_err(), "a proof against a root the ledger does not hold must not exist");
+    let nullifier = first_input_nullifier(&tx);
+    let rej = attempt(&mut f.state, &mut f.rng, &f.resolver, tx).await;
+    eprintln!("forged root, claimed: {}", rej.describe());
+    assert!(rej.is_transcript_failure(), "unexpected disposal: {}", rej.describe());
+    assert!(f.state.ledger.zswap.nullifiers.get(&nullifier).is_none());
 }
 
-/// T24: a whitelist update with the wrong administrator secret cannot be proven.
+/// T13 (b): membership proven against an attacker-chosen root while the
+/// transcript claims the real one. The statement and the witness disagree, so
+/// the proof is invalid.
+#[tokio::test]
+async fn t13b_forged_root_in_witness_is_an_invalid_proof() {
+    let mut f = fixture(0x14).await;
+    let coin = regulated_coins(&f.state, &f.gate)[0];
+    let mut forged = f.gate.whitelist.clone();
+    let carol = Party::new(&mut f.rng, 9);
+    forged.set(carol.slot, carol.leaf());
+    let opts = TransferOptions {
+        whitelist_override: Some(&forged),
+        ..Default::default()
+    };
+    let tx = regulated_transfer_tx(&f.state, &mut f.rng, &f.gate, &f.alice, &f.bob, &coin, &opts);
+    let nullifier = first_input_nullifier(&tx);
+    let rej = attempt(&mut f.state, &mut f.rng, &f.resolver, tx).await;
+    eprintln!("forged root, unclaimed: {}", rej.describe());
+    assert!(rej.is_invalid_proof(), "unexpected disposal: {}", rej.describe());
+    assert!(f.state.ledger.zswap.nullifiers.get(&nullifier).is_none());
+}
+
+/// T24: a whitelist update with the wrong administrator secret. The relation
+/// ties the secret to the admin key in the contract state, so the proof is
+/// invalid and nothing is applied.
 #[tokio::test]
 async fn t24_wrong_admin_secret_cannot_update_root() {
     let mut f = fixture(0x24).await;
     let wrong: Fr = f.rng.r#gen();
     let tx = update_root_tx(&f.state, &mut f.rng, &f.gate, Fr::from(7), wrong);
-    let res = midnight_ledger::test_utilities::tx_prove(f.rng.clone(), &tx, &f.resolver).await;
-    assert!(res.is_err(), "an unauthorized administrator must not be able to prove an update");
+    let rej = match midnight_ledger::test_utilities::tx_prove(f.rng.clone(), &tx, &f.resolver).await {
+        Err(e) => Rejection::Proving(format!("{e:?}")),
+        Ok(proven) => {
+            let mut strictness = WellFormedStrictness::default();
+            strictness.enforce_balancing = false;
+            apply_rejected(&mut f.state, &proven, strictness)
+        }
+    };
+    eprintln!("update with the wrong secret: {}", rej.describe());
+    assert!(
+        matches!(rej, Rejection::Proving(_)) || rej.is_invalid_proof(),
+        "unexpected disposal: {}",
+        rej.describe()
+    );
 }

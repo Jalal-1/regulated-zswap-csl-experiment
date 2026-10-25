@@ -153,16 +153,21 @@ async fn proven_transfer(seed: u64) -> (TestState<InMemoryDB>, Tx<Signature, InM
             Default::default(),
         );
 
-    // Pass 1: learn the exact fee of the proven shape.
-    let mut trial = state.clone();
-    let trial_tx = pay_exact_dust_fee(&mut trial, &mut rng.clone(), tx.clone(), 1);
-    let trial_proven = tx_prove(rng.split(), &trial_tx, &RESOLVER).await.expect("trial proving");
-    let fee = dbg_fees_with_state(&trial_proven, &state.ledger.parameters, &state.ledger, true)
-        .expect("fee computation");
-
-    // Pass 2: pay it.
-    let paid = pay_exact_dust_fee(&mut state, &mut rng, tx, fee);
-    let proven = tx_prove(rng.split(), &paid, &RESOLVER).await.expect("proving");
+    // The ledger prices the proven transaction by size, and the DUST spend's
+    // own encoded value is part of that size: iterate to a fixed point.
+    let mut fee: u128 = 1_000_000_000_000_000;
+    let proven = loop {
+        let mut attempt = state.clone();
+        let paid = pay_exact_dust_fee(&mut attempt, &mut rng, tx.clone(), fee);
+        let proven = tx_prove(rng.split(), &paid, &RESOLVER).await.expect("proving");
+        let measured = dbg_fees_with_state(&proven, &state.ledger.parameters, &state.ledger, true)
+            .expect("fee computation");
+        if measured <= fee {
+            state = attempt;
+            break proven;
+        }
+        fee = measured;
+    };
     (state, proven, nullifier)
 }
 

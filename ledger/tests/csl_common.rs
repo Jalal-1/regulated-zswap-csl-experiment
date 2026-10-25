@@ -22,6 +22,7 @@
 use std::borrow::Cow;
 
 use base_crypto::data_provider::{FetchMode, MidnightDataProvider, OutputMode};
+use base_crypto::time::Duration;
 use base_crypto::fab::AlignedValue;
 use base_crypto::hash::HashOutput;
 use base_crypto::rng::SplittableRng;
@@ -32,6 +33,8 @@ use coin_structure::contract::ContractAddress;
 use coin_structure::custom_spend::{SpendRule, TokenDerivation, csl_policy_binding, fr_pair};
 use midnight_ledger::construct::{ContractCallPrototype, PreTranscript, partition_transcripts};
 use midnight_ledger::dust::{DUST_EXPECTED_FILES, DustActions, DustOutput, DustResolver};
+use midnight_ledger::error::{MalformedTransaction, TransactionInvalid};
+use midnight_ledger::semantics::TransactionResult;
 use midnight_ledger::structure::{
     ContractDeploy, INITIAL_PARAMETERS, Intent, ProofPreimageMarker, Signature, Transaction,
 };
@@ -41,15 +44,17 @@ use midnight_ledger::test_utilities::{
 };
 use midnight_ledger::verify::WellFormedStrictness;
 use midnight_ledger_v10 as midnight_ledger;
-use midnight_zkir::csl_gate::{
+use zkir_v2::csl_gate::{
     self, AUTHORIZE_ENTRY_POINT, AUTHORIZE_KEY_LOCATION, AuthorizeWitness, OutputWitness,
     UPDATE_ROOT_ENTRY_POINT, UPDATE_ROOT_KEY_LOCATION, UpdateRootWitness,
 };
-use midnight_zkir::csl_whitelist::{Whitelist, user_leaf};
+use zkir_v2::csl_whitelist::{Whitelist, user_leaf};
 use onchain_runtime::context::QueryContext;
 use onchain_runtime::ops::{Key, Op};
 use onchain_runtime::result_mode::ResultModeVerify;
-use onchain_runtime::state::{ContractOperation, ContractState, EntryPointBuf, StateValue, stval};
+use onchain_runtime::state::{
+    ChargedState, ContractOperation, ContractState, EntryPointBuf, StateValue, stval,
+};
 use onchain_runtime::{kernel_claim_output_coverage, kernel_claim_spend_authorization};
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use storage::arena::Sp;
@@ -59,7 +64,7 @@ use transient_crypto::commitment::PedersenRandomness;
 use transient_crypto::curve::Fr;
 use transient_crypto::proofs::{KeyLocation, ProvingKeyMaterial};
 use zswap::keys::SecretKeys;
-use zswap::{Input, Offer, Output};
+use zswap::{Offer, Output};
 
 pub type UnprovenTx = Transaction<Signature, ProofPreimageMarker, PedersenRandomness, InMemoryDB>;
 
@@ -241,15 +246,19 @@ fn gate_call(
     key_location: &'static str,
     program: Vec<Op<ResultModeVerify, InMemoryDB>>,
     private_transcript: Vec<Fr>,
+    run_against: Option<ChargedState<InMemoryDB>>,
 ) -> ContractCallPrototype<InMemoryDB> {
-    let context = QueryContext::new(
+    // The transcript is produced by running the program against a contract
+    // state. Honest callers use the ledger's; an attacker may run it against
+    // any state they like (T13), which is why the ledger replays it.
+    let contract_state = run_against.unwrap_or_else(|| {
         state
             .ledger
             .index(gate.address)
             .expect("gate deployed")
-            .data,
-        gate.address,
-    );
+            .data
+    });
+    let context = QueryContext::new(contract_state, gate.address);
     let pair = partition_transcripts(
         &[PreTranscript {
             context,
@@ -308,6 +317,7 @@ pub fn update_root_tx(
         UPDATE_ROOT_KEY_LOCATION,
         program,
         witness.private_transcript(),
+        None,
     );
     Transaction::from_intents(
         "local-test",
@@ -359,8 +369,13 @@ pub struct TransferOptions<'a> {
     pub claim_sender: Option<&'a Party>,
     /// Pay this party instead of the one the gate checks (T08).
     pub pay_instead: Option<&'a Party>,
-    /// Prove membership against this root and path instead of the current ones (T12/T13).
-    pub root_override: Option<(Fr, [(Fr, bool); midnight_zkir::csl_whitelist::WHITELIST_DEPTH])>,
+    /// Prove membership (root, sender path and recipient path) against this
+    /// whitelist instead of the gate's (T13).
+    pub whitelist_override: Option<&'a Whitelist>,
+    /// Claim the overriding whitelist's root in the public transcript, running
+    /// the program against a forged copy of the contract state (T13a). When
+    /// false the gate's current root is claimed (T13b).
+    pub claim_forged_root: bool,
 }
 
 /// A guarded Alice -> Bob transfer, unproven: one regulated input, one regulated
@@ -378,7 +393,7 @@ pub fn regulated_transfer_tx(
         .zswap
         .spend_with_derivation(rng, &state.zswap_keys, coin, Some(0), &gate.derivation)
         .expect("guarded spend construction");
-    let policy = input.policy.as_ref().expect("guarded input carries a policy");
+    assert!(input.policy.is_some(), "guarded input carries a policy");
     let paid = opts.pay_instead.unwrap_or(bob);
     let bob_coin = CoinInfo {
         nonce: rng.r#gen(),
@@ -404,10 +419,9 @@ pub fn regulated_transfer_tx(
         Vec::new()
     } else {
         let sender = opts.claim_sender.unwrap_or(alice);
-        let (root, sender_path) = match &opts.root_override {
-            Some((root, path)) => (*root, *path),
-            None => (gate.current_root, gate.whitelist.path(sender.slot)),
-        };
+        let list = opts.whitelist_override.unwrap_or(&gate.whitelist);
+        let root = if opts.whitelist_override.is_some() { list.root() } else { gate.current_root };
+        let sender_path = list.path(sender.slot);
         // What the gate claims to have checked: Bob's coin, whoever the offer actually pays.
         let checked_coin = CoinInfo {
             nonce: bob_coin.nonce,
@@ -439,11 +453,21 @@ pub fn regulated_transfer_tx(
                 value: Fr::from(bob_coin.value),
                 recipient_pk: fr_pair(&bob.pk()),
                 recipient_r: bob.r,
-                recipient_path: gate.whitelist.path(bob.slot),
+                recipient_path: list.path(bob.slot),
             }],
         };
         let mut program: Vec<Op<ResultModeVerify, InMemoryDB>> = Vec::new();
-        program.extend(read_cell(csl_gate::CELL_ROOT as u8, gate.current_root.into()));
+        let claimed_root = if opts.claim_forged_root { root } else { gate.current_root };
+        program.extend(read_cell(csl_gate::CELL_ROOT as u8, claimed_root.into()));
+        // A claimed root other than the gate's needs a forged copy of the
+        // contract state to run the program against.
+        let run_against = (claimed_root != gate.current_root).then(|| {
+            ChargedState::new(stval!([
+                (claimed_root),
+                (gate.token_type.0),
+                (csl_gate::admin_key(gate.admin_secret))
+            ]))
+        });
         program.extend(read_cell(
             csl_gate::CELL_TOKEN_TYPE as u8,
             gate.token_type.0.into(),
@@ -459,6 +483,7 @@ pub fn regulated_transfer_tx(
             AUTHORIZE_KEY_LOCATION,
             program,
             witness.private_transcript(),
+            run_against,
         )]
     };
     Transaction::new(
@@ -475,7 +500,7 @@ pub fn first_input_nullifier(tx: &UnprovenTx) -> Nullifier {
         panic!("standard transaction expected")
     };
     let offer = stx.guaranteed_coins.as_ref().expect("guaranteed offer");
-    let input: &Input<_, _> = offer.inputs.iter().next().expect("one input");
+    let input = offer.inputs.iter().next().expect("one input");
     input.nullifier
 }
 
@@ -510,7 +535,10 @@ pub fn pay_exact_dust_fee(
         remaining -= v_fee;
     }
     assert_eq!(remaining, 0, "test wallet cannot cover the fee");
-    let mut intent = Intent::empty(rng, state.time);
+    // A TTL of ten minutes (within the global hour): the harness advances the
+    // block time by ten seconds per applied block, and a retained transaction
+    // must survive the administrator's update block to be tested at all.
+    let mut intent = Intent::empty(rng, state.time + Duration::from_secs(600));
     intent.dust_actions = Some(Sp::new(DustActions {
         spends,
         registrations: vec![].into(),
@@ -523,24 +551,100 @@ pub fn pay_exact_dust_fee(
     tx.merge(&fee_tx).expect("merge fee intent")
 }
 
-/// Pays the exact fee of `tx` (learned from a trial proof) and proves it.
+/// Pays the fee of `tx` in DUST and proves it. The ledger prices the proven
+/// transaction by size, and the DUST spend's own encoded value is part of that
+/// size, so the fee is found by iterating proofs to a fixed point: pay `fee`,
+/// prove, measure; stop when the payment covers the measured fee.
 pub async fn pay_and_prove(
     state: &mut TestState<InMemoryDB>,
     rng: &mut StdRng,
     resolver: &Resolver,
     tx: UnprovenTx,
 ) -> Result<Tx<Signature, InMemoryDB>, String> {
-    let mut trial = state.clone();
-    let trial_tx = pay_exact_dust_fee(&mut trial, &mut rng.clone(), tx.clone(), 1);
-    let trial_proven = tx_prove(rng.split(), &trial_tx, resolver)
-        .await
-        .map_err(|e| format!("{e:?}"))?;
-    let fee = dbg_fees_with_state(&trial_proven, &state.ledger.parameters, &state.ledger, true)
-        .map_err(|e| format!("{e:?}"))?;
-    let paid = pay_exact_dust_fee(state, rng, tx, fee);
-    tx_prove(rng.split(), &paid, resolver)
-        .await
-        .map_err(|e| format!("{e:?}"))
+    let mut fee: u128 = 1_000_000_000_000_000;
+    for _ in 0..5 {
+        let mut attempt = state.clone();
+        let paid = pay_exact_dust_fee(&mut attempt, rng, tx.clone(), fee);
+        let proven = tx_prove(rng.split(), &paid, resolver)
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        let measured = dbg_fees_with_state(&proven, &state.ledger.parameters, &state.ledger, true)
+            .map_err(|e| format!("{e:?}"))?;
+        if measured <= fee {
+            *state = attempt;
+            return Ok(proven);
+        }
+        fee = measured;
+    }
+    Err("DUST fee did not converge".to_owned())
+}
+
+/// How the ledger disposed of a transaction that must not move a coin. The
+/// prover does not check satisfiability (`create_proof` emits a proof for any
+/// witness), so an attacker can always produce *some* proof; what the
+/// experiment has to show is that no such proof is accepted.
+pub enum Rejection {
+    /// The prover refused the witness.
+    Proving(String),
+    /// Strict `well_formed` rejected the proven transaction; nothing was applied.
+    Verification(MalformedTransaction<InMemoryDB>),
+    /// Verification passed and application failed (the state replay).
+    Application(TransactionResult<InMemoryDB>),
+}
+
+impl Rejection {
+    pub fn describe(&self) -> String {
+        match self {
+            Rejection::Proving(e) => format!("rejected by the prover: {e}"),
+            Rejection::Verification(e) => format!("rejected at verification: {e:?}"),
+            Rejection::Application(r) => format!("rejected at application: {r:?}"),
+        }
+    }
+
+    /// The proof did not verify under the embedded verifier key.
+    pub fn is_invalid_proof(&self) -> bool {
+        matches!(
+            self,
+            Rejection::Verification(MalformedTransaction::InvalidProof(_))
+        )
+    }
+
+    /// The proof verified, but the public transcript it is bound to did not
+    /// replay against the contract's current state.
+    pub fn is_transcript_failure(&self) -> bool {
+        matches!(
+            self,
+            Rejection::Application(TransactionResult::Failure(TransactionInvalid::Transcript(_)))
+        )
+    }
+}
+
+/// Pays, proves and applies `tx`, which must not succeed. Panics if the ledger
+/// accepts and applies it; otherwise reports how it was rejected.
+pub async fn attempt(
+    state: &mut TestState<InMemoryDB>,
+    rng: &mut StdRng,
+    resolver: &Resolver,
+    tx: UnprovenTx,
+) -> Rejection {
+    let proven = match pay_and_prove(state, rng, resolver, tx).await {
+        Err(e) => return Rejection::Proving(e),
+        Ok(proven) => proven,
+    };
+    apply_rejected(state, &proven, WellFormedStrictness::default())
+}
+
+/// Applies an already proven transaction that must not succeed.
+pub fn apply_rejected(
+    state: &mut TestState<InMemoryDB>,
+    proven: &Tx<Signature, InMemoryDB>,
+    strictness: WellFormedStrictness,
+) -> Rejection {
+    match state.apply(proven, strictness) {
+        Ok(TransactionResult::Success(_)) => panic!("the transaction was accepted and applied"),
+        Ok(other) => Rejection::Application(other),
+        Err(e) => Rejection::Verification(e),
+    }
 }
 
 /// The complete Stage 3 fixture: funded wallet, deployed gate, Alice (the test
