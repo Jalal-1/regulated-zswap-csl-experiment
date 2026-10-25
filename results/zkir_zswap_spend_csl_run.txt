@@ -1,0 +1,13 @@
+running 6 tests
+test derivation_matches_coin_structure ... ok
+CSL spend relation: k = 15
+CSL spend relation: k = 15
+CSL spend relation: k = 15
+CSL spend relation: k = 15
+test historical_v1_csl_proofs_do_not_verify_under_v2_key ... ok
+test write_csl_spend_verifier_key ... ignored
+test legacy_relation_proofs_do_not_verify_under_csl_key ... ok
+test csl_spend_relation_rejects_wrong_rule_witness ... ok
+test csl_spend_relation_end_to_end ... ok
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 57.91s
+ZKIR_EXIT=0

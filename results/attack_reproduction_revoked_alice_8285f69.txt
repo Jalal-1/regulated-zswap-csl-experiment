@@ -1,0 +1,20 @@
+28 | use midnight_ledger_v10 as midnight_ledger;
+running 1 test
+test attack_gate_substitution_is_rejected ... 
+thread 'attack_gate_substitution_is_rejected' (1650) panicked at ledger/tests/csl_common.rs:788:46:
+the transaction was accepted and applied
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: csl_regression::attack_gate_substitution_is_rejected::{closure#0}
+   3: <tokio::runtime::context::scoped::Scoped<tokio::runtime::scheduler::Context>>::set::<<tokio::runtime::scheduler::current_thread::CoreGuard>::enter<<tokio::runtime::scheduler::current_thread::CoreGuard>::block_on<core::pin::Pin<&mut core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>>::{closure#0}, core::option::Option<()>>::{closure#0}, (alloc::boxed::Box<tokio::runtime::scheduler::current_thread::Core>, core::option::Option<()>)>
+   4: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+   5: <csl_regression::attack_gate_substitution_is_rejected::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+FAILED
+failures:
+failures:
+    attack_gate_substitution_is_rejected
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.98s
+error: test failed, to rerun pass `-p midnight-ledger-v10 --test csl_regression`
+EXIT=101

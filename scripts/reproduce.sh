@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
-# Portable reproduction of the regulated ZSwap CSL experiment.
+# Portable, pinned reproduction of the regulated ZSwap CSL experiment.
 #
 # Usage:  scripts/reproduce.sh [stage ...]
-# Stages: clone      clone this repository's `ledger-experiment` branch into $LEDGER (if absent)
-#         params     download and verify the public parameters bls_midnight_2p0..18 into $MIDNIGHT_PP
+# Stages: clone      fetch this repository's ledger branch and check out the PINNED commit from MANIFEST.json
+#         verify     check that $LEDGER is at the pinned commit and has no local modifications (never resets)
+#         params     download and verify (SHA-256) the public parameters bls_midnight_2p0..18 into $MIDNIGHT_PP
 #         clis       build the zkir CLIs (v2 and v3) into $BIN
 #         artifacts  compile zkir-precompiles/* into $MIDNIGHT_LEDGER_TEST_STATIC_DIR (as flake.nix does)
-#         unit       the non-proving test suites touched by the change
-#         controls   the Stage 0 strict ledger controls (real proofs)
+#         features   assert `mock-verify` is absent from the resolved feature graph of every tested crate
+#         metadata   write $LOGS/run-metadata.json (revision, toolchain, features, parameter and artifact hashes)
+#         unit       the non-proving suites touched by the change
+#         controls   the strict ledger controls (plain transfer accepted; corrupted proof and altered statement rejected)
 #         scenarios  the Stage 3 scenarios (real proofs, about four minutes on four cores)
-#         all        everything above, in order (default)
+#         regression the regression suite (malicious gate, hiding binding, protected-token configuration)
+#         full       the complete midnight-ledger-v10 proving suite (about forty minutes on four cores)
+#         quick      clone verify params clis artifacts features metadata unit controls scenarios regression
+#         all        quick + full   (default)
 #
 # Environment (all optional):
 #   LEDGER                           ledger checkout            (default: ./midnight-ledger)
@@ -17,46 +23,34 @@
 #   MIDNIGHT_LEDGER_TEST_STATIC_DIR  compiled test artifacts    (default: ./test-artifacts)
 #   BIN                              zkir CLI binaries          (default: ./bin)
 #   LOGS                             log directory              (default: ./logs)
-#   REPO_URL                         where `clone` fetches from (default: this repository on GitHub)
+#   MANIFEST                         pin file                   (default: MANIFEST.json next to this script's parent)
+#   REPO_URL                         where `clone` fetches from (default: manifest.repository)
+#   ALLOW_REVISION_MISMATCH=1        proceed on a different commit (recorded in run-metadata.json as a deviation)
+#   ALLOW_DIRTY=1                    proceed with local modifications (recorded; the diff summary is logged)
 #
-# Requirements: rust stable (rustc 1.97.0 was used), curl, jq, sha256sum, git. No Nix needed.
+# Requirements: rust stable (rustc 1.97.0 was used), git, curl, jq, sha256sum. No Nix needed.
 set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MANIFEST="${MANIFEST:-$HERE/../MANIFEST.json}"
+[ -f "$MANIFEST" ] || { echo "manifest not found: $MANIFEST" >&2; exit 2; }
+command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
 
 LEDGER="${LEDGER:-$PWD/midnight-ledger}"
 export MIDNIGHT_PP="${MIDNIGHT_PP:-$PWD/params}"
 export MIDNIGHT_LEDGER_TEST_STATIC_DIR="${MIDNIGHT_LEDGER_TEST_STATIC_DIR:-$PWD/test-artifacts}"
 BIN="${BIN:-$PWD/bin}"
 LOGS="${LOGS:-$PWD/logs}"
-REPO_URL="${REPO_URL:-https://github.com/Jalal-1/regulated-zswap-csl-experiment.git}"
-# The hand-written relations need a deep stack in the harness threads.
 export RUST_MIN_STACK="${RUST_MIN_STACK:-67108864}"
 export CARGO_TERM_COLOR=never
 mkdir -p "$LOGS"
 
-# SHA-256 of the public parameters, as pinned (in SRI form) by flake.nix at the base commit and
-# verified against the downloaded files during the experiment.
-PARAM_URL="https://midnight-s3-fileshare-dev-eu-west-1.s3.eu-west-1.amazonaws.com"
-PARAM_HASHES="
-59b30b3114a34ccbbfb599376e178fb8d9b3366cae2174c2f1da20e75847f823 bls_midnight_2p0
-bbe04fe3c70d0c138447cb086b4baddc30cb8bb2a004114bc02e6f739516280e bls_midnight_2p1
-80e15568fa1a0117db893239be7fa5e34a6bcc3a8c3bfa7709534b9cb88eb6c1 bls_midnight_2p2
-4be827a6472193df80d8f08b4b25a85baef436fdd1965d89b6af89f4ec4e99e2 bls_midnight_2p3
-232f401fad10c7ddf8828d2aa4c85c6506c5da09795998cecaeb9f75fc8f6ada bls_midnight_2p4
-0a1c9229f315fc1868ff25f668fb83aec4d09f4f23a706b5197c692c619d72c6 bls_midnight_2p5
-cf2ad6be7d0fedf5bec2aaa35f6be4aca33053d74268fdf5aa54fcb2891ea6df bls_midnight_2p6
-e82ae890c080188355f37feaffe91372584cd810615082d9143d4dec0453fd9d bls_midnight_2p7
-909b707551eaaea79828e883cde6fc46ab15986c3b1d791bed462c9e2805c933 bls_midnight_2p8
-b9009f1098bcefffec3c461ab3a5e3a17f7e5599f0f08c70fcdc55a89227bcbd bls_midnight_2p9
-46b2290933cbed4c378889e4ba971f1a92888331ffb09466acd4ff61a1e2cb42 bls_midnight_2p10
-9901589d7956ff58be0d85569b2f455b77b58c3758026ffb5bbe4807000b96d1 bls_midnight_2p11
-ef08eb3fcf62df8f72c515cffa027e681808b530cb016eea104115545ef6d5c8 bls_midnight_2p12
-d3324910969c4cc54143b8045b649e5c3a4bd5fb7b8f85fe1b770f640ce1c803 bls_midnight_2p13
-fc253016885ec830e97808c9ec920bb5cab5c21af590380a6cb5eb0538e2b244 bls_midnight_2p14
-724c7c3d779148bb113c7ee9c034b2f27db16e6bdf315fde90105a9bad00b1de bls_midnight_2p15
-09c877216d6589b370263e18af40a030a901b41a7a7c37ef58c9901db41f05c6 bls_midnight_2p16
-4a9ef6c7c0619aab74eede44b13e753e3ba54508a02dd3b7106a949aabb73b74 bls_midnight_2p17
-e8436dc5d8b598f169c127c745135d889744007e6d384ff126df8d1332522f86 bls_midnight_2p18
-"
+PIN_COMMIT="$(jq -r .implementation_commit "$MANIFEST")"
+PIN_BRANCH="$(jq -r .implementation_branch "$MANIFEST")"
+REPO_URL="${REPO_URL:-$(jq -r .repository "$MANIFEST")}"
+PARAM_URL="$(jq -r .parameters.url "$MANIFEST")"
+PIN_SPEND_VK="$(jq -r .artifacts.embedded_spend_verifier_sha256 "$MANIFEST")"
+DEVIATIONS=()
 
 log() { printf '[%s] %s\n' "$(date -u +%FT%TZ)" "$*"; }
 run() { # run <logname> <command...>: tee to a log, keep the exit code
@@ -68,19 +62,48 @@ run() { # run <logname> <command...>: tee to a log, keep the exit code
 }
 
 stage_clone() {
-  if [ -d "$LEDGER/.git" ]; then log "ledger checkout present at $LEDGER"; return; fi
-  log "cloning the ledger-experiment branch into $LEDGER"
-  git clone --branch ledger-experiment "$REPO_URL" "$LEDGER"
+  if [ -d "$LEDGER/.git" ]; then log "ledger checkout present at $LEDGER (not touching it; see 'verify')"; return; fi
+  log "cloning $REPO_URL branch $PIN_BRANCH into $LEDGER"
+  git clone --branch "$PIN_BRANCH" "$REPO_URL" "$LEDGER"
+  log "checking out the pinned commit $PIN_COMMIT (detached)"
+  git -C "$LEDGER" checkout --quiet --detach "$PIN_COMMIT"
+}
+
+stage_verify() {
+  [ -d "$LEDGER/.git" ] || { log "no ledger checkout at $LEDGER; run the clone stage"; exit 3; }
+  local head; head="$(git -C "$LEDGER" rev-parse HEAD)"
+  if [ "$head" != "$PIN_COMMIT" ]; then
+    log "REVISION MISMATCH: checkout is at $head, manifest pins $PIN_COMMIT"
+    if [ "${ALLOW_REVISION_MISMATCH:-0}" = "1" ]; then
+      DEVIATIONS+=("revision mismatch: $head != $PIN_COMMIT"); log "continuing because ALLOW_REVISION_MISMATCH=1"
+    else
+      log "refusing to continue: results would not describe the pinned implementation."
+      log "Either check out $PIN_COMMIT yourself, or set ALLOW_REVISION_MISMATCH=1 to record the deviation. Nothing was reset."
+      exit 3
+    fi
+  else
+    log "revision verified: $head"
+  fi
+  local dirty; dirty="$(git -C "$LEDGER" status --porcelain --untracked-files=normal)"
+  if [ -n "$dirty" ]; then
+    log "LOCAL MODIFICATIONS in $LEDGER:"; printf '%s\n' "$dirty" | head -40
+    git -C "$LEDGER" diff --stat | tail -3 | tee "$LOGS/local-modifications.txt" >/dev/null || true
+    if [ "${ALLOW_DIRTY:-0}" = "1" ]; then
+      DEVIATIONS+=("local modifications present (see local-modifications.txt)"); log "continuing because ALLOW_DIRTY=1"
+    else
+      log "refusing to continue with local modifications; commit or stash them, or set ALLOW_DIRTY=1 to record the deviation. Nothing was reset or deleted."
+      exit 3
+    fi
+  else
+    log "working tree clean"
+  fi
 }
 
 stage_params() {
   mkdir -p "$MIDNIGHT_PP"
-  echo "$PARAM_HASHES" | while read -r hash name; do
-    [ -n "${name:-}" ] || continue
+  jq -r '.parameters.files | to_entries[] | "\(.value) \(.key)"' "$MANIFEST" | while read -r hash name; do
     local f="$MIDNIGHT_PP/$name"
-    if [ -f "$f" ] && [ "$(sha256sum "$f" | cut -d' ' -f1)" = "$hash" ]; then
-      log "$name: present, hash verified"; continue
-    fi
+    if [ -f "$f" ] && [ "$(sha256sum "$f" | cut -d' ' -f1)" = "$hash" ]; then log "$name: present, hash verified"; continue; fi
     log "$name: downloading"
     curl -fsSL --retry 3 -o "$f.part" "$PARAM_URL/$name"
     local got; got="$(sha256sum "$f.part" | cut -d' ' -f1)"
@@ -96,14 +119,11 @@ stage_clis() {
 }
 
 stage_artifacts() {
-  # Reproduces flake.nix `packages.test-artifacts`: each precompile directory is compiled with the
-  # zkir CLI matching its IR major version; the CLI writes .prover/.verifier keys and .bzkir.
   local art="$MIDNIGHT_LEDGER_TEST_STATIC_DIR"
   rm -rf "$art"; mkdir -p "$art"
   for c in "$LEDGER"/zkir-precompiles/*/; do
     local name; name="$(basename "$c")"
-    mkdir -p "$art/$name/zkir" "$art/$name/keys"
-    cp "$c"/* "$art/$name/zkir/"
+    mkdir -p "$art/$name/zkir" "$art/$name/keys"; cp "$c"/* "$art/$name/zkir/"
     local ver; ver="$(jq -s '.[0].version.major' "$art/$name/zkir"/*.zkir)"
     local bin; if [ "$ver" = "2" ]; then bin="$BIN/zkir-v2"; else bin="$BIN/zkir-v3"; fi
     log "compiling $name (zkir v$ver)"
@@ -112,33 +132,72 @@ stage_artifacts() {
   log "artifacts in $art"
 }
 
+stage_features() {
+  cd "$LEDGER"
+  local bad=0
+  for pkg in midnight-ledger-v10 midnight-zswap midnight-zkir midnight-onchain-runtime midnight-coin-structure; do
+    local out n
+    if out="$(cargo tree -p "$pkg" --features proving -e features 2>/dev/null)"; then :; else out="$(cargo tree -p "$pkg" -e features)"; fi
+    n="$(printf '%s\n' "$out" | grep -c 'mock-verify' || true)"
+    log "$pkg: mock-verify occurrences in the resolved feature graph = $n"
+    [ "$n" = "0" ] || bad=1
+  done
+  [ "$bad" = "0" ] || { log "mock-verify is enabled somewhere; refusing to count these runs as real-proof evidence"; exit 4; }
+}
+
+stage_metadata() {
+  local head dirty spend_vk
+  head="$(git -C "$LEDGER" rev-parse HEAD 2>/dev/null || echo unknown)"
+  dirty="$(git -C "$LEDGER" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+  spend_vk="$(sha256sum "$LEDGER/zswap/static/spend.verifier" | cut -d' ' -f1)"
+  [ "$spend_vk" = "$PIN_SPEND_VK" ] || DEVIATIONS+=("embedded spend verifier sha256 $spend_vk differs from the manifest's $PIN_SPEND_VK")
+  {
+    echo "{"
+    echo "  \"manifest\": \"$MANIFEST\","
+    echo "  \"pinned_commit\": \"$PIN_COMMIT\","
+    echo "  \"checked_out_commit\": \"$head\","
+    echo "  \"local_modifications\": $dirty,"
+    echo "  \"rustc\": \"$(rustc -V)\","
+    echo "  \"cargo\": \"$(cargo -V)\","
+    echo "  \"host\": \"$(uname -srm)\","
+    echo "  \"features\": \"--features proving on midnight-ledger-v10 (default proof-verifying); mock-verify asserted absent by the features stage\","
+    echo "  \"embedded_spend_verifier_sha256\": \"$spend_vk\","
+    echo "  \"embedded_spend_verifier_pin\": \"$(cut -d' ' -f1 "$LEDGER/zswap/static/spend.verifier.csl.sha256")\","
+    echo "  \"parameters_sha256\": $(cd "$MIDNIGHT_PP" && sha256sum bls_midnight_2p* | jq -R -s 'split("\n") | map(select(length>0))'),"
+    if [ -d "$MIDNIGHT_LEDGER_TEST_STATIC_DIR" ]; then
+      echo "  \"test_artifact_keys_sha256\": $(cd "$MIDNIGHT_LEDGER_TEST_STATIC_DIR" && { find . -name '*.verifier' -o -name '*.prover' | sort | xargs sha256sum; } | jq -R -s 'split("\n") | map(select(length>0))'),"
+    fi
+    echo "  \"deviations\": $(printf '%s\n' "${DEVIATIONS[@]:-}" | jq -R -s 'split("\n") | map(select(length>0))'),"
+    echo "  \"written\": \"$(date -u +%FT%TZ)\""
+    echo "}"
+  } > "$LOGS/run-metadata.json"
+  log "run metadata written to $LOGS/run-metadata.json"; cat "$LOGS/run-metadata.json"
+}
+
 stage_unit() {
   cd "$LEDGER"
-  run coin_structure      cargo test -p midnight-coin-structure custom_spend
-  run zkir_lib            cargo test --release -p midnight-zkir --lib
-  run zkir_zswap_spend    cargo test --release -p midnight-zkir --test zswap_spend
+  run coin_structure       cargo test -p midnight-coin-structure custom_spend
+  run zkir_lib             cargo test --release -p midnight-zkir --lib
+  run zkir_zswap_spend     cargo test --release -p midnight-zkir --test zswap_spend
   run zkir_zswap_spend_csl cargo test --release -p midnight-zkir --test zswap_spend_csl
-  run zswap               cargo test --release -p midnight-zswap
-  run onchain_runtime     cargo test --release -p midnight-onchain-runtime
-  run ledger_lib          cargo test --release -p midnight-ledger-v10 --lib
+  run zswap                cargo test --release -p midnight-zswap
+  run onchain_runtime      cargo test --release -p midnight-onchain-runtime
+  run ledger_lib           cargo test --release -p midnight-ledger-v10 --lib
 }
 
-stage_controls() {
-  cd "$LEDGER"
-  run ledger_malicious_imbalance cargo test --release -p midnight-ledger-v10 --features proving --test malicious_imbalance
-  run ledger_csl_baseline        cargo test --release -p midnight-ledger-v10 --features proving --test csl_baseline -- --nocapture
-}
+stage_controls()   { cd "$LEDGER"; run ledger_malicious_imbalance cargo test --release -p midnight-ledger-v10 --features proving --test malicious_imbalance; run ledger_csl_baseline cargo test --release -p midnight-ledger-v10 --features proving --test csl_baseline -- --nocapture; }
+stage_scenarios()  { cd "$LEDGER"; run ledger_csl_regulated_transfer cargo test --release -p midnight-ledger-v10 --features proving --test csl_regulated_transfer -- --nocapture --test-threads=1; }
+stage_regression() { cd "$LEDGER"; run ledger_csl_regression cargo test --release -p midnight-ledger-v10 --features proving --test csl_regression -- --nocapture --test-threads=1; }
+stage_full()       { cd "$LEDGER"; run ledger_full_proving_suite cargo test --release -p midnight-ledger-v10 --features proving --no-fail-fast -- --test-threads=1; }
 
-stage_scenarios() {
-  cd "$LEDGER"
-  run ledger_csl_regulated_transfer cargo test --release -p midnight-ledger-v10 --features proving --test csl_regulated_transfer -- --nocapture --test-threads=1
-}
+stage_quick() { stage_clone; stage_verify; stage_params; stage_clis; stage_artifacts; stage_features; stage_metadata; stage_unit; stage_controls; stage_scenarios; stage_regression; }
 
 stages=("$@"); [ ${#stages[@]} -gt 0 ] || stages=(all)
 for s in "${stages[@]}"; do
   case "$s" in
-    all) stage_clone; stage_params; stage_clis; stage_artifacts; stage_unit; stage_controls; stage_scenarios ;;
-    clone|params|clis|artifacts|unit|controls|scenarios) "stage_$s" ;;
+    all) stage_quick; stage_full ;;
+    quick) stage_quick ;;
+    clone|verify|params|clis|artifacts|features|metadata|unit|controls|scenarios|regression|full) "stage_$s" ;;
     *) echo "unknown stage: $s" >&2; exit 2 ;;
   esac
 done

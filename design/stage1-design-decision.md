@@ -307,3 +307,81 @@ root and the token type, and guarded transfers are built by a raw builder with k
 the gate call, misstate the sender, pay a different recipient, or prove against a forged root.
 Fees are paid exactly in DUST from a trial proof, because the shared balancing helper prices
 against mock proofs and underpays real ones by a fixed amount.
+
+## 7. Security fixes (revision 2)
+
+A source review of the reviewed implementation (ledger commit `8285f69`) found three
+protocol defects and a reproducibility gap. All are fixed on this branch; the fixes are
+demonstrated by `ledger/tests/csl_regression.rs` under real proofs.
+
+### 7.1 Authenticated gate route (critical)
+
+**Defect.** The spend statement committed only to `policy.binding` in its first public input.
+The accompanying `policy.gate` and `policy.entry_point_hash`, which the ledger's `effects_check`
+matches on to route authorization, were not public inputs of the spend proof. The binding was an
+opaque Poseidon hash, so an attacker could keep the genuine binding `B` (which internally named the
+real gate `G`) while setting the serialized routing fields to an attacker-controlled gate `H`, and
+have `H` claim `B` without checking the whitelist. Reproduced against `8285f69`: a sender removed
+from the whitelist moves the coin to an approved recipient through a permissive gate she deploys
+(`results/attack_reproduction_revoked_alice_8285f69.log`, "the transaction was accepted and
+applied").
+
+**Fix.** The spend relation now appends five public inputs after the legacy 68:
+`[mode, gate_hi, gate_lo, ep_hi, ep_lo]`, constrained in-circuit to the rule kind and the witnessed
+gate address and entry point that the token-type derivation already pins (all zero under `Empty`).
+`Input::well_formed` fills them from the input's public `policy` fields. Repointing `policy.gate` or
+`policy.entry_point_hash`, or dropping `policy` on a guarded coin, now changes the statement away
+from what the proof proved, so verification fails. Because the coin's type is derived from the
+genuine gate's address (and addresses are unforgeable), no proof can name a different or cloned gate
+for a coin of that type. The mode is an explicit, authenticated input; nothing is inferred from the
+binding being zero. (`zkir/src/zswap_spend_csl.rs`, `zswap/src/verify.rs`.)
+
+### 7.2 Hiding policy binding (high)
+
+**Defect.** The binding was `Poseidon(DOM, nullifier, sender_pk, gate, ep)`. The nullifier, gate,
+entry point and the binding are public, so anyone who already knew a candidate sender's coin public
+key could recompute the binding and recognise that sender's spends: a known-key recognition oracle.
+
+**Fix.** The binding is now `Poseidon(DOM[v2], nullifier, sender_pk, token_type, rho)`, where `rho`
+is a fresh, uniform field element drawn once per spend from the wallet's RNG. `rho` is a private
+witness of the spend proof and of the gate proof; it is never serialized, never a public input,
+never written to effects or logs. With a secret uniform `rho` the public binding is a hiding
+commitment and reveals nothing about the sender or the type. The gate and entry point are no longer
+in the binding (they are authenticated separately, 7.1). What stays public is unchanged: the
+nullifier, the gate and entry point, and the fact that the input is guarded; the asset family is
+still disclosed by the gate address, as the plan anticipated. (`coin-structure/src/custom_spend.rs`,
+`zkir/src/zswap_spend_csl.rs`, `zkir/src/csl_gate.rs`.)
+
+### 7.3 Protected-token configuration
+
+**Defect.** `update_root` rewrote both the root and the gate's protected `token_type` cell, and the
+`authorize` recipient check only applied when an output's type equalled that cell. An authorized (or
+mistaken) update to another type silently removed recipient enforcement for the original asset, and
+a second asset pointed at the same gate obtained sender-only enforcement.
+
+**Fix.** The protected type is written once, by a new administrator-only `init` entry point whose
+transcript reads the type cell *claiming it is still zero*; the ledger's replay rejects a second
+`init` once the cell is set (one-time initialization). `update_root` writes the root only and cannot
+touch the type. `authorize` folds the gate's own type cell into the binding, and the ledger requires
+that binding to equal the spend proof's binding, which commits to the *spent* coin's type; so the
+gate can only ever authorize spends of its own protected asset. A second asset at the same gate gets
+no authorization at all (the bindings cannot match), not sender-only checks. Transfers fail before
+initialization. (`zkir/src/csl_gate.rs`, `ledger/tests/csl_common.rs`.)
+
+### 7.4 No active fallback for the old relation
+
+The embedded spend verifier key is regenerated from the fixed relation, and the production prover
+produces proofs for it. The previous (v1) CSL relation is kept only as a frozen, never-dispatched
+module (`zkir/src/zswap_spend_csl_v1_historical.rs`) used by two rejection tests: a v1-layout proof
+fails under the regenerated key at the relation level, and a v1-layout spend proof spliced into an
+otherwise valid transfer is rejected through the full `Transaction::well_formed` path. The wire
+layout of `SpendPolicyBinding`, `Input` and `Offer` is byte-identical to the reviewed
+implementation (only the binding's preimage and the proof's public-input count changed), so their
+storable tags are unchanged; the real incompatibility is enforced by the embedded key.
+
+### 7.5 What did not change
+
+The ledger's two-way matching rule in `effects_check`, the effects maps and their indices, the
+coverage rule, the fee mechanism, and the first supported shape (one regulated input, one
+equal-value regulated output, one gate call) are all unchanged. The binding dropped the gate and
+entry point and gained the token type and `rho`; its arity went from 9 to 8 field elements.

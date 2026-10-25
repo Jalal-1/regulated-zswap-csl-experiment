@@ -176,3 +176,38 @@ to read.
   of the type needs the same treatment (the tests tell you which).
 - **Next steps in order** are in `design/next-steps.md`: proof-free matching tests first, then the
   Stage 4 shapes, the mint and claim rules, the node, and the measurements.
+
+## 7. Revision 2 security fixes (what to check)
+
+A source review found three protocol defects in `8285f69`; all are fixed on this branch and covered
+by `ledger/tests/csl_regression.rs`. `design/stage1-design-decision.md` section 7 has the full
+write-up. For a reviewer, the things to verify:
+
+- **Route authentication (critical).** `zkir/src/zswap_spend_csl.rs` appends five public inputs
+  `[mode, gate_hi, gate_lo, ep_hi, ep_lo]`, constrained (via `std.select` on the rule bit) to the
+  witnessed gate/entry point that the type derivation pins. `zswap/src/verify.rs` fills them from the
+  input's `policy`. Check that the five are emitted in the same order both places, and that an
+  `Empty` coin emits zeros (so a guarded coin cannot masquerade as unguarded). Tests:
+  `attack_gate_substitution`, `attack_cloned_gate`, `route_entry_point_substitution`,
+  `omitted_policy`; and at the relation level the route-tamper loop in
+  `zkir/tests/zswap_spend_csl.rs::csl_spend_relation_end_to_end`.
+- **Hiding binding (high).** `coin-structure/src/custom_spend.rs::csl_policy_binding` is now
+  `Poseidon(DOM[v2], nullifier, sender, token_type, rho)`. Check that `rho` is drawn from the RNG in
+  `zswap/src/construct.rs` (not derived from public data), is threaded to the gate's `authorize`
+  witness, and never appears in a public input, a serialized field, `Effects`, or a log. Tests:
+  `mismatched_blinding`, `tampered_binding`, `policy_binding_is_blinded_and_type_bound`. The privacy
+  claim rests on Poseidon being a hiding commitment in `rho`; there is no in-repo proof of
+  indistinguishability, only the absence of a recomputation path.
+- **Protected-token configuration.** `zkir/src/csl_gate.rs`: `init` (one-time, claims the type cell
+  is zero), `update_root` (root only), and `authorize` folds the cell type into the binding. Check
+  that `update_root`'s template has no token-type write, and that `authorize` asserts the cell is
+  non-zero. Tests: `transfer_before_initialization`, `second_initialization_cannot_retarget`,
+  `init_with_wrong_admin`, `second_asset_at_same_gate`, `protected_asset_survives_root_update`.
+- **No old-relation fallback.** The embedded key is regenerated from the fixed relation (pin test
+  `embedded_spend_verifier_key_is_the_csl_key`); the v1 relation is frozen in
+  `zkir/src/zswap_spend_csl_v1_historical.rs` and never dispatched. Tests:
+  `historical_v1_spend_proof_is_rejected_by_the_ledger` (full ledger path),
+  `historical_v1_csl_proofs_do_not_verify_under_v2_key` (relation level).
+- **Test-only adversarial code.** `GatePermissive` (`zkir/src/csl_gate.rs`) and the historical
+  relation are reachable only from tests and the test resolver; they are never embedded or dispatched
+  on a production path. Confirm no key-location constant routes to them in `zkir/src/lib.rs`.

@@ -1,7 +1,7 @@
 From cf1b217426df91cc81068396a01b80ffa02b9ca1 Mon Sep 17 00:00:00 2001
 From: Jalal Hannan <jalal.hannan@midnight.foundation>
 Date: Sun, 25 Oct 2026 17:47:58 +0000
-Subject: [PATCH 3/4] Handoff doc: state the expected failure of two existing
+Subject: [PATCH 3/5] Handoff doc: state the expected failure of two existing
  tests as unverified
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>

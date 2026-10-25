@@ -95,3 +95,61 @@ scenarios passed. Wall clock 39 minutes including compilation; log `stage4_full_
 
 Every target passes; the expectation recorded earlier in this log that `micro-dao` and
 `token_vault_shielded` would fail was wrong, for the reason given above.
+
+## Revision 2: security fixes
+
+Base for the fixes: `8285f69` (reviewed implementation). Same toolchain, parameters and feature
+discipline as above; `mock-verify` is absent from the resolved graph for every run here.
+
+### Malicious-gate attack, reproduced against the reviewed implementation
+
+Before fixing, the gate-substitution attack was run against `8285f69` with real proofs. A sender
+removed from the whitelist, keeping her coin and keys, deploys a permissive gate `H` and repoints
+her genuine spend's public routing fields to it; `H` rubber-stamps the authorization. The ledger
+ACCEPTED it:
+
+```
+test attack_gate_substitution_is_rejected ... 
+thread '...' panicked at ledger/tests/csl_common.rs: the transaction was accepted and applied
+test result: FAILED. 0 passed; 1 failed
+```
+
+Full logs: `attack_reproduction_approved_alice_8285f69.txt` (first form) and
+`attack_reproduction_revoked_alice_8285f69.txt` (the decisive revoked-sender form).
+
+### Regression suite under the fixed implementation
+
+`cargo test --release -p midnight-ledger-v10 --features proving --test csl_regression -- --test-threads=1`
+
+| Id | Test | What it shows | Disposal |
+| --- | --- | --- | --- |
+| 1a | `attack_gate_substitution_is_rejected` | revoked sender routes to a permissive gate | InvalidProof (native spend) at verification |
+| 1b | `route_entry_point_substitution_is_rejected` | route to a different entry point on the real gate | InvalidProof (native spend) at verification |
+| 1c | `attack_cloned_gate_is_rejected` | clone gate with attacker whitelist | InvalidProof (native spend) at verification |
+| 1d | `omitted_policy_is_rejected` | guarded coin presented as unguarded | InvalidProof (native spend) at verification |
+| 1e | `omitted_gate_call_is_rejected` | policy kept, no gate call | EffectsCheckFailure(SpendAuthorizationsNEClaimed) at verification |
+| 1f | `approved_transfer_still_succeeds` | correctly routed approved transfer | accepted and applied |
+| 2a | `mismatched_blinding_is_rejected` | gate proof uses a different `rho` than the spend | EffectsCheckFailure(SpendAuthorizationsNEClaimed) at verification |
+| 2b | `tampered_binding_is_rejected` | public binding value altered after proving | InvalidProof (native spend) at verification |
+| 3a | `transfer_before_initialization_is_rejected` | gate not initialized | EffectsCheckFailure(SpendAuthorizationsNEClaimed) at verification |
+| 3b | `second_initialization_cannot_retarget` | second `init`, honest and forged-state | Failure(Transcript ReadMismatch) at application (one-time init) |
+| 3c | `init_with_wrong_admin_is_rejected` | wrong administrator secret | InvalidProof (gate proof) at verification |
+| 3d | `second_asset_at_same_gate_gets_no_authorization` | a second asset pointed at the gate | EffectsCheckFailure(SpendAuthorizationsNEClaimed) at verification |
+| 3e | `protected_asset_survives_root_update` | approved works and approved->unapproved fails after an update | approved->approved accepted; approved->unapproved InvalidProof (gate proof) |
+| 5 | `historical_v1_spend_proof_is_rejected_by_the_ledger` | a v1-layout spend proof spliced into a valid transfer | InvalidProof (native spend) at verification |
+
+Result: 14 passed, 0 failed, 329 s.
+
+### zkir relation tests under the regenerated key
+
+`cargo test --release -p midnight-zkir --test zswap_spend_csl`: 5 passed, 1 ignored (the key-writing test), 58 s. Includes the appended
+route authenticators (tampering with any of the five fails verification), the hiding binding, and
+`historical_v1_csl_proofs_do_not_verify_under_v2_key` (a v1-layout proof is rejected by the current
+embedded key at the relation level).
+
+### Embedded key
+
+The embedded spend verifier key was regenerated from the fixed relation:
+`zswap/static/spend.verifier` persistent-hash `bb6033fb0cccf70eec4328dca6d61d5e95d336266e629c340bd0eaefbf39e932` (pinned in
+`spend.verifier.csl.sha256`). `zswap::verify::embedded_spend_verifier_key_is_the_csl_key` passes, so
+the key the ledger embeds is the one the production prover generates.

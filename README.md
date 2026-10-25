@@ -18,10 +18,19 @@ that omits or misstates the gate call. Approved transfers still work. Everything
 (change outputs, transients, contract owners, mint and burn routes, node integration, measurements)
 was **not** done; see "What was not done".
 
+**Revision 2 (security review).** A later source review found that the first implementation, while it
+enforced the rule for honest callers, had three protocol defects: the spend proof did not
+authenticate which gate the ledger routed to (so a malicious contract could rubber-stamp a revoked
+holder's spend), the public binding let anyone holding a candidate key recognise a sender's spends,
+and the gate's protected token type was freely retargetable. All three are fixed on this branch and
+demonstrated with real proofs; the malicious-gate attack was first reproduced accepting against the
+reviewed commit. See "Revision 2: security fixes" below.
+
 **Start here.** `REVIEWING.md` is the reviewer's guide: reading order, the plan's validation
 properties mapped to code and tests, a file-by-file map of the diff with what to check, the open
 questions, and how to run and extend the work. `scripts/reproduce.sh` reproduces every run from a
-clean machine (no Nix needed). The ledger code itself is on the `ledger-experiment` branch.
+clean machine against the commit pinned in `MANIFEST.json` (no Nix needed). The ledger code itself is
+on the `ledger-experiment` branch.
 
 The ledger changes were pushed first, by mistake, to a branch of an unrelated repository
 (`Jalal-1/wea-japan-pos-poc`, branch `claude/exciting-carson-rz5qr5`). This repository is the
@@ -61,6 +70,9 @@ Branch `main` (this branch):
 | `scripts/reproduce.sh` | Portable reproduction: clone, parameters (downloaded and hash-verified), zkir CLIs, test artifacts, unit suites, strict controls, scenarios. Stages can be run individually. |
 | `scripts/stage*_chain*.sh`, `scripts/*.py`, `scripts/publish.sh` | The scripts that actually ran each stage in the experiment's container, and the Python scripts that applied the larger edits. They contain absolute paths from that container and are kept as a record. |
 | `REVIEWING.md` | Reviewer's and pickup guide. |
+| `MANIFEST.json` | Pins the implementation commit, parameter hashes and embedded verifier hash; `scripts/reproduce.sh` reads it. |
+| `results/attack_reproduction_*_8285f69.txt` | The malicious-gate attack accepted against the reviewed commit (revision 2 evidence). |
+| `results/csl_regression_run.txt` | The revision-2 regression suite (14 tests) under real proofs. |
 
 Branch `ledger-experiment`: the actual ledger branch, that is, the full history of
 `midnightntwrk/midnight-ledger` up to `fa995fa` plus the four experiment commits. It is the same
@@ -234,6 +246,13 @@ What this evidence does and does not establish, in the plan's own terms:
 ---
 
 ## What was not done
+
+This section records the status **as of revision 1**. Revision 2 (the security fixes, see the
+section at the end) additionally closed several acceptance items that were open or only
+relation-level before: gate and entry-point substitution (T10), old-relation proofs through the full
+ledger path (T21), a wrong/lookalike contract (T17), and the attacker-root family (T13), plus new
+checks on the binding's hiding property and the protected-token configuration. The stage-level scope
+below (Stage 4 shapes, mint/claim gating, Stage 5 node, Stage 6 measurements) is unchanged.
 
 ### Plan stages
 
@@ -461,3 +480,26 @@ Each is stated so it is not mistaken for something it is not.
   and whitelist details in Stage 1; leave node integration for later.
 - Commit authorship: the ledger commits and this repository's commits carry the experimenter as
   author with a co-author trailer for the coding assistant that produced them.
+
+---
+
+## Revision 2: security fixes
+
+A source review of the first implementation (ledger commit `8285f69`) found three protocol defects
+and a reproducibility gap. All are fixed on this branch and demonstrated with real proofs by
+`ledger/tests/csl_regression.rs`. Details: `design/stage1-design-decision.md` section 7,
+`results/results.md`.
+
+| # | Defect | Fix | Demonstrated by |
+| --- | --- | --- | --- |
+| 1 (critical) | The spend proof authenticated only the opaque binding, not `policy.gate`/`policy.entry_point_hash`. An attacker-controlled contract could repeat the binding and rubber-stamp the authorization, so a revoked holder could move the coin through a gate she deployed. | The spend statement now exposes and constrains `[mode, gate, entry_point]`, filled by the verifier from the input's public policy; the token type binds to the real gate's address. | reproduced accepting against `8285f69` (`results/attack_reproduction_*`), rejected after the fix (`attack_gate_substitution`, `attack_cloned_gate`, `route_entry_point_substitution`, `omitted_policy`) |
+| 2 (high) | The binding `Poseidon(dom, nullifier, sender, gate, ep)` was recomputable by anyone who knew a candidate sender key: a recognition oracle. | The binding is now `Poseidon(dom[v2], nullifier, sender, token_type, rho)` with fresh private `rho` shared only between the spend and gate proofs. | `mismatched_blinding`, `tampered_binding`, and the coin-structure unit test `policy_binding_is_blinded_and_type_bound` |
+| 3 | `update_root` could rewrite the protected token type, silently disabling recipient checks; a second asset at the same gate got sender-only enforcement. | A one-time admin `init` sets the type; `update_root` is root-only; the gate folds its own type cell into the binding, so it authorizes only its own asset. | `transfer_before_initialization`, `second_initialization_cannot_retarget`, `init_with_wrong_admin`, `second_asset_at_same_gate`, `protected_asset_survives_root_update` |
+| 4 | Real-proof coverage was not reliably reproducible in CI. | A dedicated real-proving CI job (mock-verify asserted absent), a pinned `MANIFEST.json`, and a revision-checking `scripts/reproduce.sh` that records run metadata. | `.github/workflows/csl-proving.yml` on the `ledger-experiment` branch |
+| 5 | — | The embedded verifier key is regenerated from the fixed relation; the old relation is frozen as never-dispatched test evidence; old-layout proofs are rejected through the full ledger path. | `historical_v1_spend_proof_is_rejected_by_the_ledger`, `historical_v1_csl_proofs_do_not_verify_under_v2_key` |
+
+**What still stands:** the first supported shape (one regulated input, one equal-value regulated
+output, one gate call), the ledger's matching and coverage rules, the effects maps, and the privacy
+boundary are unchanged. The nine original scenarios still pass. Scope not addressed here (change
+outputs, transients, contract owners, mint/claim gating, node integration, measurements) is
+unchanged from revision 1; see `design/next-steps.md`.

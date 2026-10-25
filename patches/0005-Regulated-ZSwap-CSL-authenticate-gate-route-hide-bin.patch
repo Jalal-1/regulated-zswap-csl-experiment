@@ -1,0 +1,3654 @@
+From 7f40a1a4a981d233e3d380907e165d12cfac6b93 Mon Sep 17 00:00:00 2001
+From: Jalal Hannan <jalal.hannan@midnight.foundation>
+Date: Sun, 25 Oct 2026 20:09:47 +0000
+Subject: [PATCH 5/5] Regulated ZSwap CSL: authenticate gate route, hide
+ binding, init protected type
+
+Fixes three protocol defects found in review of 8285f69 and keeps the old
+relation only as frozen rejection-test evidence.
+
+1. Authenticated gate route (critical). The spend statement gains five public
+   inputs [mode, gate_hi, gate_lo, ep_hi, ep_lo], constrained in-circuit to the
+   witnessed gate/entry point the token-type derivation pins. Input::well_formed
+   fills them from the input's public policy, so repointing policy.gate /
+   policy.entry_point_hash or dropping policy on a guarded coin now fails
+   verification. Closes the malicious-gate redirection (reproduced against
+   8285f69; see ledger/tests/csl_regression.rs::attack_gate_substitution).
+
+2. Hiding binding (high). The binding is now
+   Poseidon(DOM[v2], nullifier, sender, token_type, rho) with fresh per-spend
+   rho, a private witness of both the spend and gate proofs; it is never
+   serialized or public. Removes the known-key recognition oracle and binds the
+   spent token type across both proofs.
+
+3. Protected-token configuration. A one-time admin `init` entry point sets the
+   type (its transcript claims the cell is zero, so the ledger's replay makes it
+   one-time); update_root writes the root only; authorize folds the gate's own
+   type cell into the binding, so the gate authorizes only its own asset and a
+   second asset at the same gate gets no authorization rather than sender-only.
+
+The embedded spend verifier key is regenerated from the fixed relation; the v1
+CSL relation is frozen in zswap_spend_csl_v1_historical (never dispatched) and
+used by rejection tests. Wire layouts are byte-identical, so storable tags are
+unchanged. Regression suite in ledger/tests/csl_regression.rs; reproduction
+evidence captured separately.
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Q9CJgdhDhwqKR5eCeFM2VG
+---
+ .github/workflows/csl-proving.yml             | 186 +++++
+ ci/csl/params.sha256                          |  19 +
+ coin-structure/src/custom_spend.rs            |  52 +-
+ .../regulated-zswap-csl/next-steps.md         |  29 +
+ .../regulated-zswap-csl/results.md            |  58 ++
+ .../stage1-design-decision.md                 |  78 ++
+ ledger/tests/csl_common.rs                    | 467 ++++++++++-
+ ledger/tests/csl_regression.rs                | 344 ++++++++
+ zkir/src/csl_gate.rs                          | 432 +++++++++-
+ zkir/src/lib.rs                               |   2 +
+ zkir/src/zswap_spend_csl.rs                   | 124 ++-
+ zkir/src/zswap_spend_csl_v1_historical.rs     | 769 ++++++++++++++++++
+ zkir/tests/zswap_spend_csl.rs                 |  92 ++-
+ zswap/src/construct.rs                        |  28 +-
+ zswap/src/local.rs                            |  16 +-
+ zswap/src/verify.rs                           |  23 +-
+ zswap/static/spend.verifier                   | Bin 2311 -> 2311 bytes
+ zswap/static/spend.verifier.csl.sha256        |   2 +-
+ 18 files changed, 2581 insertions(+), 140 deletions(-)
+ create mode 100644 .github/workflows/csl-proving.yml
+ create mode 100644 ci/csl/params.sha256
+ create mode 100644 ledger/tests/csl_regression.rs
+ create mode 100644 zkir/src/zswap_spend_csl_v1_historical.rs
+
+diff --git a/.github/workflows/csl-proving.yml b/.github/workflows/csl-proving.yml
+new file mode 100644
+index 00000000..401747af
+--- /dev/null
++++ b/.github/workflows/csl-proving.yml
+@@ -0,0 +1,186 @@
++# Real-proof CI for the regulated ZSwap CSL experiment.
++#
++# Everything here runs with the `proving` feature and the default
++# `proof-verifying` feature. `mock-verify` is asserted ABSENT from the resolved
++# feature graph before any test runs: a green run means real proofs were
++# produced and verified by the production verifier, never mocked.
++name: csl-real-proving
++
++on:
++  push:
++    branches: [ledger-experiment]
++    paths-ignore: ['docs/**', '**/*.md']
++  pull_request:
++    branches: [ledger-experiment]
++  workflow_dispatch:
++    inputs:
++      full_suite:
++        description: 'Also run the complete midnight-ledger-v10 proving suite (about 40 minutes)'
++        type: boolean
++        default: false
++  schedule:
++    - cron: '17 3 * * 1'   # weekly full suite
++
++env:
++  CARGO_TERM_COLOR: never
++  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
++  RUST_MIN_STACK: '67108864'
++  MIDNIGHT_PP: ${{ github.workspace }}/.csl/params
++  MIDNIGHT_LEDGER_TEST_STATIC_DIR: ${{ github.workspace }}/.csl/test-artifacts
++  PARAM_URL: https://midnight-s3-fileshare-dev-eu-west-1.s3.eu-west-1.amazonaws.com
++
++jobs:
++  csl-regressions:
++    name: CSL scenarios and regressions (real proofs)
++    runs-on: ubuntu-latest
++    timeout-minutes: 180
++    steps:
++      - uses: actions/checkout@v4
++
++      - uses: dtolnay/rust-toolchain@stable
++
++      - uses: Swatinem/rust-cache@v2
++        with:
++          shared-key: csl-proving
++
++      - name: Tools
++        run: sudo apt-get update -qq && sudo apt-get install -y -qq jq
++
++      - name: Record run metadata (part 1)
++        run: |
++          mkdir -p .csl/logs
++          {
++            echo "{"
++            echo "  \"implementation_commit\": \"$(git rev-parse HEAD)\","
++            echo "  \"rustc\": \"$(rustc -V)\","
++            echo "  \"cargo\": \"$(cargo -V)\","
++            echo "  \"features\": \"--features proving (default proof-verifying); mock-verify asserted absent\","
++            echo "  \"runner\": \"$(uname -srm)\","
++            echo "  \"started\": \"$(date -u +%FT%TZ)\""
++            echo "}"
++          } > .csl/logs/run-metadata-part1.json
++          cat .csl/logs/run-metadata-part1.json
++
++      - name: Assert mock-verify is absent from the resolved feature graph
++        run: |
++          set -euo pipefail
++          for pkg in midnight-ledger-v10 midnight-zswap midnight-zkir midnight-onchain-runtime midnight-coin-structure; do
++            n=$(cargo tree -p "$pkg" --features proving -e features 2>/dev/null | grep -c 'mock-verify' || true)
++            # packages without a `proving` feature: retry without it
++            if [ "$n" = "0" ] && ! cargo tree -p "$pkg" --features proving -e features >/dev/null 2>&1; then
++              n=$(cargo tree -p "$pkg" -e features | grep -c 'mock-verify' || true)
++            fi
++            echo "$pkg: mock-verify occurrences = $n"
++            [ "$n" = "0" ] || { echo "mock-verify is enabled for $pkg"; exit 1; }
++          done
++
++      - name: Public parameters (download, SHA-256 verified)
++        run: |
++          set -euo pipefail
++          mkdir -p "$MIDNIGHT_PP"
++          while read -r hash name; do
++            [ -n "${name:-}" ] || continue
++            f="$MIDNIGHT_PP/$name"
++            if [ -f "$f" ] && [ "$(sha256sum "$f" | cut -d' ' -f1)" = "$hash" ]; then echo "$name ok"; continue; fi
++            curl -fsSL --retry 3 -o "$f.part" "$PARAM_URL/$name"
++            got=$(sha256sum "$f.part" | cut -d' ' -f1)
++            [ "$got" = "$hash" ] || { echo "$name: hash mismatch ($got)"; exit 1; }
++            mv "$f.part" "$f"; echo "$name downloaded, verified"
++          done < ci/csl/params.sha256
++
++      - name: zkir CLIs
++        run: |
++          cargo build --release -p midnight-zkir --features binary --bin zkir
++          mkdir -p .csl/bin && cp target/release/zkir .csl/bin/zkir-v2
++          cargo build --release -p midnight-zkir-v3 --features binary --bin zkir
++          cp target/release/zkir .csl/bin/zkir-v3
++
++      - name: Test artifacts (zkir compile-many, as flake.nix does)
++        run: |
++          set -euo pipefail
++          art="$MIDNIGHT_LEDGER_TEST_STATIC_DIR"; rm -rf "$art"; mkdir -p "$art"
++          for c in zkir-precompiles/*/; do
++            name=$(basename "$c"); mkdir -p "$art/$name/zkir" "$art/$name/keys"; cp "$c"/* "$art/$name/zkir/"
++            ver=$(jq -s '.[0].version.major' "$art/$name/zkir"/*.zkir)
++            if [ "$ver" = "2" ]; then bin=.csl/bin/zkir-v2; else bin=.csl/bin/zkir-v3; fi
++            "$bin" compile-many "$art/$name/zkir" "$art/$name/keys"
++          done
++
++      - name: Unit suites touched by the change
++        run: |
++          cargo test -p midnight-coin-structure custom_spend
++          cargo test --release -p midnight-zkir --lib
++          cargo test --release -p midnight-zkir --test zswap_spend
++          cargo test --release -p midnight-zkir --test zswap_spend_csl
++          cargo test --release -p midnight-zswap
++          cargo test --release -p midnight-onchain-runtime
++          cargo test --release -p midnight-ledger-v10 --lib
++
++      - name: Strict controls (plain transfer accepted; corrupted proof and altered statement rejected)
++        run: cargo test --release -p midnight-ledger-v10 --features proving --test csl_baseline -- --nocapture
++
++      - name: Stage 3 scenarios (T01, T02/T12, T04, T06, T07, T08, T13a, T13b, T24)
++        run: cargo test --release -p midnight-ledger-v10 --features proving --test csl_regulated_transfer -- --nocapture --test-threads=1
++
++      - name: Regression suite (gate route authentication, hiding binding, protected-token configuration, historical layouts)
++        run: cargo test --release -p midnight-ledger-v10 --features proving --test csl_regression -- --nocapture --test-threads=1
++
++      - name: Record run metadata (part 2: artifact hashes)
++        if: always()
++        run: |
++          {
++            echo "{"
++            echo "  \"embedded_spend_verifier_sha256\": \"$(sha256sum zswap/static/spend.verifier | cut -d' ' -f1)\","
++            echo "  \"embedded_spend_verifier_pin\": \"$(cut -d' ' -f1 zswap/static/spend.verifier.csl.sha256)\","
++            echo "  \"params_sha256\": $(cd "$MIDNIGHT_PP" && sha256sum bls_midnight_2p* | jq -R -s 'split("\n") | map(select(length>0))'),"
++            echo "  \"test_artifact_keys_sha256\": $(cd "$MIDNIGHT_LEDGER_TEST_STATIC_DIR" && find . -name '*.verifier' -o -name '*.prover' | sort | xargs sha256sum | jq -R -s 'split("\n") | map(select(length>0))'),"
++            echo "  \"finished\": \"$(date -u +%FT%TZ)\""
++            echo "}"
++          } > .csl/logs/run-metadata-part2.json
++          cat .csl/logs/run-metadata-part2.json
++
++      - uses: actions/upload-artifact@v4
++        if: always()
++        with:
++          name: csl-run-metadata
++          path: .csl/logs/
++
++  full-ledger-proving:
++    name: Complete midnight-ledger-v10 proving suite
++    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_suite)
++    runs-on: ubuntu-latest
++    timeout-minutes: 300
++    steps:
++      - uses: actions/checkout@v4
++      - uses: dtolnay/rust-toolchain@stable
++      - uses: Swatinem/rust-cache@v2
++        with:
++          shared-key: csl-proving
++      - run: sudo apt-get update -qq && sudo apt-get install -y -qq jq
++      - name: Public parameters
++        run: |
++          set -euo pipefail
++          mkdir -p "$MIDNIGHT_PP"
++          while read -r hash name; do
++            [ -n "${name:-}" ] || continue
++            f="$MIDNIGHT_PP/$name"
++            curl -fsSL --retry 3 -o "$f" "$PARAM_URL/$name"
++            [ "$(sha256sum "$f" | cut -d' ' -f1)" = "$hash" ] || { echo "$name: hash mismatch"; exit 1; }
++          done < ci/csl/params.sha256
++      - name: zkir CLIs and test artifacts
++        run: |
++          set -euo pipefail
++          cargo build --release -p midnight-zkir --features binary --bin zkir && mkdir -p .csl/bin && cp target/release/zkir .csl/bin/zkir-v2
++          cargo build --release -p midnight-zkir-v3 --features binary --bin zkir && cp target/release/zkir .csl/bin/zkir-v3
++          art="$MIDNIGHT_LEDGER_TEST_STATIC_DIR"; rm -rf "$art"; mkdir -p "$art"
++          for c in zkir-precompiles/*/; do
++            name=$(basename "$c"); mkdir -p "$art/$name/zkir" "$art/$name/keys"; cp "$c"/* "$art/$name/zkir/"
++            ver=$(jq -s '.[0].version.major' "$art/$name/zkir"/*.zkir)
++            if [ "$ver" = "2" ]; then bin=.csl/bin/zkir-v2; else bin=.csl/bin/zkir-v3; fi
++            "$bin" compile-many "$art/$name/zkir" "$art/$name/keys"
++          done
++      - name: Assert mock-verify absent
++        run: |
++          n=$(cargo tree -p midnight-ledger-v10 --features proving -e features | grep -c 'mock-verify' || true); echo "mock-verify occurrences: $n"; [ "$n" = "0" ]
++      - name: Full suite
++        run: cargo test --release -p midnight-ledger-v10 --features proving --no-fail-fast -- --test-threads=1
+diff --git a/ci/csl/params.sha256 b/ci/csl/params.sha256
+new file mode 100644
+index 00000000..75c9f5cf
+--- /dev/null
++++ b/ci/csl/params.sha256
+@@ -0,0 +1,19 @@
++59b30b3114a34ccbbfb599376e178fb8d9b3366cae2174c2f1da20e75847f823 bls_midnight_2p0
++bbe04fe3c70d0c138447cb086b4baddc30cb8bb2a004114bc02e6f739516280e bls_midnight_2p1
++80e15568fa1a0117db893239be7fa5e34a6bcc3a8c3bfa7709534b9cb88eb6c1 bls_midnight_2p2
++4be827a6472193df80d8f08b4b25a85baef436fdd1965d89b6af89f4ec4e99e2 bls_midnight_2p3
++232f401fad10c7ddf8828d2aa4c85c6506c5da09795998cecaeb9f75fc8f6ada bls_midnight_2p4
++0a1c9229f315fc1868ff25f668fb83aec4d09f4f23a706b5197c692c619d72c6 bls_midnight_2p5
++cf2ad6be7d0fedf5bec2aaa35f6be4aca33053d74268fdf5aa54fcb2891ea6df bls_midnight_2p6
++e82ae890c080188355f37feaffe91372584cd810615082d9143d4dec0453fd9d bls_midnight_2p7
++909b707551eaaea79828e883cde6fc46ab15986c3b1d791bed462c9e2805c933 bls_midnight_2p8
++b9009f1098bcefffec3c461ab3a5e3a17f7e5599f0f08c70fcdc55a89227bcbd bls_midnight_2p9
++46b2290933cbed4c378889e4ba971f1a92888331ffb09466acd4ff61a1e2cb42 bls_midnight_2p10
++9901589d7956ff58be0d85569b2f455b77b58c3758026ffb5bbe4807000b96d1 bls_midnight_2p11
++ef08eb3fcf62df8f72c515cffa027e681808b530cb016eea104115545ef6d5c8 bls_midnight_2p12
++d3324910969c4cc54143b8045b649e5c3a4bd5fb7b8f85fe1b770f640ce1c803 bls_midnight_2p13
++fc253016885ec830e97808c9ec920bb5cab5c21af590380a6cb5eb0538e2b244 bls_midnight_2p14
++724c7c3d779148bb113c7ee9c034b2f27db16e6bdf315fde90105a9bad00b1de bls_midnight_2p15
++09c877216d6589b370263e18af40a030a901b41a7a7c37ef58c9901db41f05c6 bls_midnight_2p16
++4a9ef6c7c0619aab74eede44b13e753e3ba54508a02dd3b7106a949aabb73b74 bls_midnight_2p17
++e8436dc5d8b598f169c127c745135d889744007e6d384ff126df8d1332522f86 bls_midnight_2p18
+diff --git a/coin-structure/src/custom_spend.rs b/coin-structure/src/custom_spend.rs
+index 3b3435a0..f98229b6 100644
+--- a/coin-structure/src/custom_spend.rs
++++ b/coin-structure/src/custom_spend.rs
+@@ -85,7 +85,12 @@ impl TokenDerivation {
+ }
+ 
+ /// Poseidon domain separator of the CSL policy binding.
+-pub const CSL_BIND_DOMAIN_SEP: &[u8; 21] = b"midnight:csl-bind[v1]";
++///
++/// `[v2]`: the hiding binding. The preimage commits to the spent token type and
++/// to fresh per-spend randomness `rho`, and no longer to the gate and entry
++/// point, which are authenticated as explicit public inputs of the spend
++/// statement instead (see `zswap::verify`).
++pub const CSL_BIND_DOMAIN_SEP: &[u8; 21] = b"midnight:csl-bind[v2]";
+ 
+ /// Field constant for [`CSL_BIND_DOMAIN_SEP`].
+ pub fn csl_bind_domain() -> transient_crypto::curve::Fr {
+@@ -102,20 +107,32 @@ pub fn fr_pair(bytes: &[u8; 32]) -> [transient_crypto::curve::Fr; 2] {
+     ]
+ }
+ 
+-/// The policy binding a guarded spend exposes in its first public input:
+-/// `Poseidon(DOM, nullifier, sender, gate, ep_hash)`, where `sender` is the
+-/// coin public key (user-owned coins) or the owning contract address.
++/// The hiding policy binding a guarded spend exposes in its first public input:
++/// `Poseidon(DOM, nullifier, sender, token_type, rho)`, where `sender` is the
++/// coin public key (user-owned coins) or the owning contract address, and `rho`
++/// is fresh, uniformly random field element drawn by the wallet once per spend.
++///
++/// `rho` is a private witness of both the spend proof and the gate proof; it is
++/// never serialized, never a public input, never written to contract effects
++/// and never logged. The nullifier is public and the token type is narrowed by
++/// the (public) gate address, so without `rho` an observer who knows a
++/// candidate sender key could recompute the binding and recognise that
++/// sender's spends; with a secret uniform `rho` the value is a hiding
++/// commitment and reveals nothing about the sender or type under the
++/// standard assumption that Poseidon is a hiding commitment in its randomness.
++/// What stays public is unchanged: the nullifier, the gate and entry point,
++/// and the fact that the input is guarded.
+ pub fn csl_policy_binding(
+     nullifier: &crate::coin::Nullifier,
+     sender: &HashOutput,
+-    gate: &ContractAddress,
+-    ep_hash: &HashOutput,
++    token_type: &crate::coin::ShieldedTokenType,
++    rho: transient_crypto::curve::Fr,
+ ) -> transient_crypto::curve::Fr {
+     let mut preimage = vec![csl_bind_domain()];
+     preimage.extend(fr_pair(&nullifier.0.0));
+     preimage.extend(fr_pair(&sender.0));
+-    preimage.extend(fr_pair(&gate.0.0));
+-    preimage.extend(fr_pair(&ep_hash.0));
++    preimage.extend(fr_pair(&token_type.0.0));
++    preimage.push(rho);
+     transient_crypto::hash::transient_hash(&preimage)
+ }
+ 
+@@ -191,6 +208,25 @@ mod tests {
+         assert_eq!(types.len(), 4);
+     }
+ 
++    /// The hiding binding depends on `rho` and on the token type: the same
++    /// nullifier and sender under two different blindings, or under two types,
++    /// give unrelated bindings (so a known key cannot be recognised without `rho`).
++    #[test]
++    fn policy_binding_is_blinded_and_type_bound() {
++        use crate::coin::{Nullifier, ShieldedTokenType};
++        use transient_crypto::curve::Fr;
++        let nullifier = Nullifier(HashOutput([5u8; 32]));
++        let sender = HashOutput([6u8; 32]);
++        let t1 = ShieldedTokenType(HashOutput([7u8; 32]));
++        let t2 = ShieldedTokenType(HashOutput([8u8; 32]));
++        let b1 = csl_policy_binding(&nullifier, &sender, &t1, Fr::from(11));
++        let b2 = csl_policy_binding(&nullifier, &sender, &t1, Fr::from(12));
++        let b3 = csl_policy_binding(&nullifier, &sender, &t2, Fr::from(11));
++        assert_ne!(b1, b2, "different randomness must change the binding");
++        assert_ne!(b1, b3, "a different token type must change the binding");
++        assert_eq!(b1, csl_policy_binding(&nullifier, &sender, &t1, Fr::from(11)), "deterministic for equal inputs");
++    }
++
+     /// Pins the exact byte layout the CSL spend circuit re-derives in-circuit:
+     /// `descriptor_hash = SHA256("midnight:spend-rule[v1]:" || 0x02 || gate || ep_hash)` and
+     /// `type = SHA256(pad32("midnight:derive_token") || domain_sep || mint_address || descriptor_hash)`.
+diff --git a/docs/experiments/regulated-zswap-csl/next-steps.md b/docs/experiments/regulated-zswap-csl/next-steps.md
+index 0a1d7675..b7024589 100644
+--- a/docs/experiments/regulated-zswap-csl/next-steps.md
++++ b/docs/experiments/regulated-zswap-csl/next-steps.md
+@@ -73,3 +73,32 @@
+   k-of-n ECDSA authorization predicate can be added to the gate relation without new primitives;
+   the spending key still has to reach the spend prover, so this makes the key insufficient rather
+   than removing it from custody.
++
++## Revision 2 security fixes (done)
++
++The three protocol defects a source review found in `8285f69`, and the reproducibility gap, are
++fixed on this branch and covered by `ledger/tests/csl_regression.rs` under real proofs. See
++`design/stage1-design-decision.md` section 7 and `results.md` for details and outcomes.
++
++- **Authenticated gate route** (critical): the spend statement now exposes and constrains the mode,
++  gate address and entry point; `Input::well_formed` fills them from the input's policy. The
++  malicious-gate redirection was reproduced against `8285f69` (accepted) and is now rejected.
++- **Hiding binding** (high): `Poseidon(DOM[v2], nullifier, sender, token_type, rho)` with fresh
++  private `rho`, removing the known-key recognition oracle and binding the spent type across the
++  spend and gate proofs.
++- **One-time protected-type init**: `init` sets the type once; `update_root` is root-only; the gate
++  authorizes only its own asset.
++- **Real-proof CI, pinned reproduction**: `.github/workflows/csl-proving.yml` (mock-verify asserted
++  absent), `MANIFEST.json`, and a revision-checking `scripts/reproduce.sh`.
++
++## Still open after revision 2 (unchanged scope boundaries)
++
++- Change outputs, transients, contract owners, merges, multi-input (Stage 4). The hiding binding and
++  route authentication carry over unchanged to those shapes; `N_OUTPUTS` is still 1.
++- Mint and `AuthorizedClaim` of a guarded type are still not gated (Stage 4), as before.
++- Node integration (Stage 5) and measurements (Stage 6) remain untouched.
++- `rho` transport in a real wallet: here the fixture draws `rho` and hands it to both proofs. A
++  production wallet must do the same (draw once, use in the spend and the gate call); the experiment
++  does not define a wire-level carrier for it because it is private to the spender.
++- The permissive gate and the historical v1 relation are test-only; they are never dispatched or
++  embedded. A production build would gate them behind a test feature.
+diff --git a/docs/experiments/regulated-zswap-csl/results.md b/docs/experiments/regulated-zswap-csl/results.md
+index 2a9ce0ba..dd04eb8c 100644
+--- a/docs/experiments/regulated-zswap-csl/results.md
++++ b/docs/experiments/regulated-zswap-csl/results.md
+@@ -95,3 +95,61 @@ scenarios passed. Wall clock 39 minutes including compilation; log `stage4_full_
+ 
+ Every target passes; the expectation recorded earlier in this log that `micro-dao` and
+ `token_vault_shielded` would fail was wrong, for the reason given above.
++
++## Revision 2: security fixes
++
++Base for the fixes: `8285f69` (reviewed implementation). Same toolchain, parameters and feature
++discipline as above; `mock-verify` is absent from the resolved graph for every run here.
++
++### Malicious-gate attack, reproduced against the reviewed implementation
++
++Before fixing, the gate-substitution attack was run against `8285f69` with real proofs. A sender
++removed from the whitelist, keeping her coin and keys, deploys a permissive gate `H` and repoints
++her genuine spend's public routing fields to it; `H` rubber-stamps the authorization. The ledger
++ACCEPTED it:
++
++```
++test attack_gate_substitution_is_rejected ... 
++thread '...' panicked at ledger/tests/csl_common.rs: the transaction was accepted and applied
++test result: FAILED. 0 passed; 1 failed
++```
++
++Full logs: `attack_reproduction_approved_alice_8285f69.txt` (first form) and
++`attack_reproduction_revoked_alice_8285f69.txt` (the decisive revoked-sender form).
++
++### Regression suite under the fixed implementation
++
++`cargo test --release -p midnight-ledger-v10 --features proving --test csl_regression -- --test-threads=1`
++
++| Id | Test | What it shows | Disposal |
++| --- | --- | --- | --- |
++| 1a | `attack_gate_substitution_is_rejected` | revoked sender routes to a permissive gate | InvalidProof (native spend) at verification |
++| 1b | `route_entry_point_substitution_is_rejected` | route to a different entry point on the real gate | InvalidProof (native spend) at verification |
++| 1c | `attack_cloned_gate_is_rejected` | clone gate with attacker whitelist | InvalidProof (native spend) at verification |
++| 1d | `omitted_policy_is_rejected` | guarded coin presented as unguarded | InvalidProof (native spend) at verification |
++| 1e | `omitted_gate_call_is_rejected` | policy kept, no gate call | EffectsCheckFailure(SpendAuthorizationsNEClaimed) at verification |
++| 1f | `approved_transfer_still_succeeds` | correctly routed approved transfer | accepted and applied |
++| 2a | `mismatched_blinding_is_rejected` | gate proof uses a different `rho` than the spend | EffectsCheckFailure(SpendAuthorizationsNEClaimed) at verification |
++| 2b | `tampered_binding_is_rejected` | public binding value altered after proving | InvalidProof (native spend) at verification |
++| 3a | `transfer_before_initialization_is_rejected` | gate not initialized | EffectsCheckFailure(SpendAuthorizationsNEClaimed) at verification |
++| 3b | `second_initialization_cannot_retarget` | second `init`, honest and forged-state | Failure(Transcript ReadMismatch) at application (one-time init) |
++| 3c | `init_with_wrong_admin_is_rejected` | wrong administrator secret | InvalidProof (gate proof) at verification |
++| 3d | `second_asset_at_same_gate_gets_no_authorization` | a second asset pointed at the gate | EffectsCheckFailure(SpendAuthorizationsNEClaimed) at verification |
++| 3e | `protected_asset_survives_root_update` | approved works and approved->unapproved fails after an update | approved->approved accepted; approved->unapproved InvalidProof (gate proof) |
++| 5 | `historical_v1_spend_proof_is_rejected_by_the_ledger` | a v1-layout spend proof spliced into a valid transfer | InvalidProof (native spend) at verification |
++
++Result: 14 passed, 0 failed, 329 s.
++
++### zkir relation tests under the regenerated key
++
++`cargo test --release -p midnight-zkir --test zswap_spend_csl`: 5 passed, 1 ignored (the key-writing test), 58 s. Includes the appended
++route authenticators (tampering with any of the five fails verification), the hiding binding, and
++`historical_v1_csl_proofs_do_not_verify_under_v2_key` (a v1-layout proof is rejected by the current
++embedded key at the relation level).
++
++### Embedded key
++
++The embedded spend verifier key was regenerated from the fixed relation:
++`zswap/static/spend.verifier` persistent-hash `bb6033fb0cccf70eec4328dca6d61d5e95d336266e629c340bd0eaefbf39e932` (pinned in
++`spend.verifier.csl.sha256`). `zswap::verify::embedded_spend_verifier_key_is_the_csl_key` passes, so
++the key the ledger embeds is the one the production prover generates.
+diff --git a/docs/experiments/regulated-zswap-csl/stage1-design-decision.md b/docs/experiments/regulated-zswap-csl/stage1-design-decision.md
+index d99772f8..649a0ae8 100644
+--- a/docs/experiments/regulated-zswap-csl/stage1-design-decision.md
++++ b/docs/experiments/regulated-zswap-csl/stage1-design-decision.md
+@@ -307,3 +307,81 @@ root and the token type, and guarded transfers are built by a raw builder with k
+ the gate call, misstate the sender, pay a different recipient, or prove against a forged root.
+ Fees are paid exactly in DUST from a trial proof, because the shared balancing helper prices
+ against mock proofs and underpays real ones by a fixed amount.
++
++## 7. Security fixes (revision 2)
++
++A source review of the reviewed implementation (ledger commit `8285f69`) found three
++protocol defects and a reproducibility gap. All are fixed on this branch; the fixes are
++demonstrated by `ledger/tests/csl_regression.rs` under real proofs.
++
++### 7.1 Authenticated gate route (critical)
++
++**Defect.** The spend statement committed only to `policy.binding` in its first public input.
++The accompanying `policy.gate` and `policy.entry_point_hash`, which the ledger's `effects_check`
++matches on to route authorization, were not public inputs of the spend proof. The binding was an
++opaque Poseidon hash, so an attacker could keep the genuine binding `B` (which internally named the
++real gate `G`) while setting the serialized routing fields to an attacker-controlled gate `H`, and
++have `H` claim `B` without checking the whitelist. Reproduced against `8285f69`: a sender removed
++from the whitelist moves the coin to an approved recipient through a permissive gate she deploys
++(`results/attack_reproduction_revoked_alice_8285f69.log`, "the transaction was accepted and
++applied").
++
++**Fix.** The spend relation now appends five public inputs after the legacy 68:
++`[mode, gate_hi, gate_lo, ep_hi, ep_lo]`, constrained in-circuit to the rule kind and the witnessed
++gate address and entry point that the token-type derivation already pins (all zero under `Empty`).
++`Input::well_formed` fills them from the input's public `policy` fields. Repointing `policy.gate` or
++`policy.entry_point_hash`, or dropping `policy` on a guarded coin, now changes the statement away
++from what the proof proved, so verification fails. Because the coin's type is derived from the
++genuine gate's address (and addresses are unforgeable), no proof can name a different or cloned gate
++for a coin of that type. The mode is an explicit, authenticated input; nothing is inferred from the
++binding being zero. (`zkir/src/zswap_spend_csl.rs`, `zswap/src/verify.rs`.)
++
++### 7.2 Hiding policy binding (high)
++
++**Defect.** The binding was `Poseidon(DOM, nullifier, sender_pk, gate, ep)`. The nullifier, gate,
++entry point and the binding are public, so anyone who already knew a candidate sender's coin public
++key could recompute the binding and recognise that sender's spends: a known-key recognition oracle.
++
++**Fix.** The binding is now `Poseidon(DOM[v2], nullifier, sender_pk, token_type, rho)`, where `rho`
++is a fresh, uniform field element drawn once per spend from the wallet's RNG. `rho` is a private
++witness of the spend proof and of the gate proof; it is never serialized, never a public input,
++never written to effects or logs. With a secret uniform `rho` the public binding is a hiding
++commitment and reveals nothing about the sender or the type. The gate and entry point are no longer
++in the binding (they are authenticated separately, 7.1). What stays public is unchanged: the
++nullifier, the gate and entry point, and the fact that the input is guarded; the asset family is
++still disclosed by the gate address, as the plan anticipated. (`coin-structure/src/custom_spend.rs`,
++`zkir/src/zswap_spend_csl.rs`, `zkir/src/csl_gate.rs`.)
++
++### 7.3 Protected-token configuration
++
++**Defect.** `update_root` rewrote both the root and the gate's protected `token_type` cell, and the
++`authorize` recipient check only applied when an output's type equalled that cell. An authorized (or
++mistaken) update to another type silently removed recipient enforcement for the original asset, and
++a second asset pointed at the same gate obtained sender-only enforcement.
++
++**Fix.** The protected type is written once, by a new administrator-only `init` entry point whose
++transcript reads the type cell *claiming it is still zero*; the ledger's replay rejects a second
++`init` once the cell is set (one-time initialization). `update_root` writes the root only and cannot
++touch the type. `authorize` folds the gate's own type cell into the binding, and the ledger requires
++that binding to equal the spend proof's binding, which commits to the *spent* coin's type; so the
++gate can only ever authorize spends of its own protected asset. A second asset at the same gate gets
++no authorization at all (the bindings cannot match), not sender-only checks. Transfers fail before
++initialization. (`zkir/src/csl_gate.rs`, `ledger/tests/csl_common.rs`.)
++
++### 7.4 No active fallback for the old relation
++
++The embedded spend verifier key is regenerated from the fixed relation, and the production prover
++produces proofs for it. The previous (v1) CSL relation is kept only as a frozen, never-dispatched
++module (`zkir/src/zswap_spend_csl_v1_historical.rs`) used by two rejection tests: a v1-layout proof
++fails under the regenerated key at the relation level, and a v1-layout spend proof spliced into an
++otherwise valid transfer is rejected through the full `Transaction::well_formed` path. The wire
++layout of `SpendPolicyBinding`, `Input` and `Offer` is byte-identical to the reviewed
++implementation (only the binding's preimage and the proof's public-input count changed), so their
++storable tags are unchanged; the real incompatibility is enforced by the embedded key.
++
++### 7.5 What did not change
++
++The ledger's two-way matching rule in `effects_check`, the effects maps and their indices, the
++coverage rule, the fee mechanism, and the first supported shape (one regulated input, one
++equal-value regulated output, one gate call) are all unchanged. The binding dropped the gate and
++entry point and gained the token type and `rho`; its arity went from 9 to 8 field elements.
+diff --git a/ledger/tests/csl_common.rs b/ledger/tests/csl_common.rs
+index 2570c9f8..e35536be 100644
+--- a/ledger/tests/csl_common.rs
++++ b/ledger/tests/csl_common.rs
+@@ -20,6 +20,7 @@
+ #![allow(dead_code)]
+ 
+ use std::borrow::Cow;
++use std::ops::Deref;
+ 
+ use base_crypto::data_provider::{FetchMode, MidnightDataProvider, OutputMode};
+ use base_crypto::time::Duration;
+@@ -33,7 +34,9 @@ use coin_structure::contract::ContractAddress;
+ use coin_structure::custom_spend::{SpendRule, TokenDerivation, csl_policy_binding, fr_pair};
+ use midnight_ledger::construct::{ContractCallPrototype, PreTranscript, partition_transcripts};
+ use midnight_ledger::dust::{DUST_EXPECTED_FILES, DustActions, DustOutput, DustResolver};
+-use midnight_ledger::error::{MalformedTransaction, TransactionInvalid};
++use midnight_ledger::error::{EffectsCheckError, MalformedTransaction, TransactionInvalid};
++use transient_crypto::proofs::Proof;
++use zswap::error::MalformedOffer;
+ use midnight_ledger::semantics::TransactionResult;
+ use midnight_ledger::structure::{
+     ContractDeploy, INITIAL_PARAMETERS, Intent, ProofPreimageMarker, Signature, Transaction,
+@@ -45,7 +48,8 @@ use midnight_ledger::test_utilities::{
+ use midnight_ledger::verify::WellFormedStrictness;
+ use midnight_ledger_v10 as midnight_ledger;
+ use zkir_v2::csl_gate::{
+-    self, AUTHORIZE_ENTRY_POINT, AUTHORIZE_KEY_LOCATION, AuthorizeWitness, OutputWitness,
++    self, AUTHORIZE_ENTRY_POINT, AUTHORIZE_KEY_LOCATION, AuthorizeWitness, INIT_ENTRY_POINT,
++    INIT_KEY_LOCATION, InitWitness, OutputWitness, PERMISSIVE_KEY_LOCATION, PermissiveWitness,
+     UPDATE_ROOT_ENTRY_POINT, UPDATE_ROOT_KEY_LOCATION, UpdateRootWitness,
+ };
+ use zkir_v2::csl_whitelist::{Whitelist, user_leaf};
+@@ -64,7 +68,7 @@ use transient_crypto::commitment::PedersenRandomness;
+ use transient_crypto::curve::Fr;
+ use transient_crypto::proofs::{KeyLocation, ProvingKeyMaterial};
+ use zswap::keys::SecretKeys;
+-use zswap::{Offer, Output};
++use zswap::{Input, Offer, Output, SpendPolicyBinding};
+ 
+ pub type UnprovenTx = Transaction<Signature, ProofPreimageMarker, PedersenRandomness, InMemoryDB>;
+ 
+@@ -86,6 +90,14 @@ pub async fn csl_resolver() -> Resolver {
+         .await
+         .expect("update_root key generation")
+         .expect("update_root key location");
++    let init_vk = csl_gate::verifier_key_bytes(&*PUBLIC_PARAMS, INIT_KEY_LOCATION)
++        .await
++        .expect("init key generation")
++        .expect("init key location");
++    let permissive_vk = csl_gate::verifier_key_bytes(&*PUBLIC_PARAMS, PERMISSIVE_KEY_LOCATION)
++        .await
++        .expect("permissive key generation")
++        .expect("permissive key location");
+     Resolver::new(
+         PUBLIC_PARAMS.clone(),
+         DustResolver(
+@@ -105,6 +117,8 @@ pub async fn csl_resolver() -> Resolver {
+             let res = match &*loc {
+                 AUTHORIZE_KEY_LOCATION => Ok(Some(material(&authorize_vk))),
+                 UPDATE_ROOT_KEY_LOCATION => Ok(Some(material(&update_vk))),
++                INIT_KEY_LOCATION => Ok(Some(material(&init_vk))),
++                PERMISSIVE_KEY_LOCATION => Ok(Some(material(&permissive_vk))),
+                 _ => Ok(None),
+             };
+             Box::pin(std::future::ready(res))
+@@ -140,13 +154,18 @@ pub struct Gate {
+     pub address: ContractAddress,
+     pub ep_authorize: HashOutput,
+     pub ep_update_root: HashOutput,
++    pub ep_init: HashOutput,
+     pub authorize_op: ContractOperation,
+     pub update_root_op: ContractOperation,
++    pub init_op: ContractOperation,
+     pub admin_secret: Fr,
+     pub whitelist: Whitelist,
+     pub current_root: Fr,
+     pub derivation: TokenDerivation,
+     pub token_type: ShieldedTokenType,
++    /// Whether `init` has published the protected token type (the cell is zero
++    /// until then, and the honest wallet reads the cell as it is).
++    pub initialized: bool,
+ }
+ 
+ fn fr_of_hash(h: &HashOutput) -> [Fr; 2] {
+@@ -161,13 +180,15 @@ pub async fn deploy_gate(
+ ) -> Gate {
+     let authorize_op = contract_operation(resolver, AUTHORIZE_KEY_LOCATION).await;
+     let update_root_op = contract_operation(resolver, UPDATE_ROOT_KEY_LOCATION).await;
++    let init_op = contract_operation(resolver, INIT_KEY_LOCATION).await;
+     let admin_secret: Fr = rng.r#gen();
+     let admin = csl_gate::admin_key(admin_secret);
+     let contract = ContractState::new(
+         stval!([(Fr::from(0)), (HashOutput([0u8; 32])), (admin)]),
+         HashMap::new()
+             .insert(AUTHORIZE_ENTRY_POINT.into(), authorize_op.clone())
+-            .insert(UPDATE_ROOT_ENTRY_POINT.into(), update_root_op.clone()),
++            .insert(UPDATE_ROOT_ENTRY_POINT.into(), update_root_op.clone())
++            .insert(INIT_ENTRY_POINT.into(), init_op.clone()),
+         Default::default(),
+     );
+     let deploy = ContractDeploy::new(rng, contract);
+@@ -188,6 +209,7 @@ pub async fn deploy_gate(
+ 
+     let ep_authorize = EntryPointBuf::from(AUTHORIZE_ENTRY_POINT).ep_hash();
+     let ep_update_root = EntryPointBuf::from(UPDATE_ROOT_ENTRY_POINT).ep_hash();
++    let ep_init = EntryPointBuf::from(INIT_ENTRY_POINT).ep_hash();
+     let derivation = TokenDerivation {
+         domain_sep: HashOutput(MINT_DOMAIN),
+         mint_address: ContractAddress(HashOutput(MINT_ADDRESS)),
+@@ -198,16 +220,157 @@ pub async fn deploy_gate(
+         address,
+         ep_authorize,
+         ep_update_root,
++        ep_init,
+         authorize_op,
+         update_root_op,
++        init_op,
+         admin_secret,
+         whitelist: Whitelist::new(),
+         current_root: Fr::from(0),
+         derivation,
+         token_type,
++        initialized: false,
++    }
++}
++
++/// A deployed permissive (malicious) gate: an attacker-controlled contract with
++/// an `authorize` entry point that rubber-stamps any binding and output coverage
++/// without consulting a whitelist. Used only to demonstrate that the ledger
++/// refuses to let an arbitrary claiming contract redirect authorization.
++pub struct PermissiveGate {
++    pub address: ContractAddress,
++    pub op: ContractOperation,
++    pub token_type: ShieldedTokenType,
++}
++
++/// Deploys a permissive gate whose `token_type` cell equals `protected`, so its
++/// `authorize` transcript reads the same cell value the honest gate would.
++pub async fn deploy_permissive_gate(
++    state: &mut TestState<InMemoryDB>,
++    rng: &mut StdRng,
++    resolver: &Resolver,
++    protected: ShieldedTokenType,
++) -> PermissiveGate {
++    let op = contract_operation(resolver, PERMISSIVE_KEY_LOCATION).await;
++    let contract = ContractState::new(
++        stval!([(Fr::from(0)), (protected.0), (Fr::from(0))]),
++        HashMap::new().insert(AUTHORIZE_ENTRY_POINT.into(), op.clone()),
++        Default::default(),
++    );
++    let deploy = ContractDeploy::new(rng, contract);
++    let address = deploy.address();
++    let tx = tx_prove(
++        rng.split(),
++        &Transaction::from_intents(
++            "local-test",
++            test_intents(rng, Vec::new(), Vec::new(), vec![deploy], state.time),
++        ),
++        resolver,
++    )
++    .await
++    .expect("permissive gate deploy proving");
++    let mut strictness = WellFormedStrictness::default();
++    strictness.enforce_balancing = false;
++    state.assert_apply(&tx, strictness);
++    PermissiveGate {
++        address,
++        op,
++        token_type: protected,
+     }
+ }
+ 
++/// The malicious-gate attack of the fix prompt's section 1: a genuine spend of
++/// the regulated coin whose on-the-wire policy routing fields are repointed from
++/// Monument's real gate `G` to a permissive gate `H`, which rubber-stamps the
++/// genuine binding and the real output coverage without checking the whitelist.
++/// The spend proof is valid; only the public routing fields are changed.
++pub fn attack_substitute_gate_tx(
++    state: &TestState<InMemoryDB>,
++    rng: &mut StdRng,
++    gate: &Gate,
++    permissive: &PermissiveGate,
++    bob: &Party,
++    coin: &QualifiedCoinInfo,
++) -> UnprovenTx {
++    // 1. A genuine spend naming the real gate G in its derivation; this yields a
++    //    valid spend proof and the real policy binding B.
++    let (_, input, _rho) = state
++        .zswap
++        .spend_with_derivation(rng, &state.zswap_keys, coin, Some(0), &gate.derivation)
++        .expect("genuine spend construction");
++    let binding = input.policy.as_ref().expect("guarded input").binding;
++
++    // 2. Repoint the public routing fields to the permissive gate H, keeping the
++    //    opaque binding value the spend proof actually committed to.
++    let ep_permissive = EntryPointBuf::from(AUTHORIZE_ENTRY_POINT).ep_hash();
++    let input = Input {
++        policy: Some(Sp::new(SpendPolicyBinding {
++            gate: permissive.address,
++            entry_point_hash: ep_permissive,
++            binding,
++        })),
++        ..input.clone()
++    };
++
++    // 3. The real output to approved Bob.
++    let bob_coin = CoinInfo {
++        nonce: rng.r#gen(),
++        value: coin.value,
++        type_: gate.token_type,
++    };
++    let output = Output::new(
++        rng,
++        &bob_coin,
++        Some(0),
++        &bob.keys.coin_public_key(),
++        Some(bob.keys.enc_public_key()),
++    )
++    .expect("output construction");
++    let bob_cm: Commitment = output.coin_com;
++    let offer = Offer {
++        inputs: vec![input].into(),
++        outputs: vec![output].into(),
++        transient: vec![].into(),
++        deltas: vec![].into(),
++    };
++
++    // 4. The permissive gate call to H: read H's cells, claim the genuine binding
++    //    and the real output commitment. No whitelist membership is proven.
++    let mut program: Vec<Op<ResultModeVerify, InMemoryDB>> = Vec::new();
++    program.extend(read_cell(csl_gate::CELL_ROOT as u8, Fr::from(0).into()));
++    program.extend(read_cell(
++        csl_gate::CELL_TOKEN_TYPE as u8,
++        permissive.token_type.0.into(),
++    ));
++    program.extend(kernel_claim_spend_authorization!(binding));
++    program.extend(kernel_claim_output_coverage!(bob_cm));
++    let witness = PermissiveWitness {
++        binding_input: 0.into(),
++        communication_commitment: 0.into(),
++        root: 0.into(),
++        token_type: fr_of_hash(&permissive.token_type.0),
++        binding,
++        commitments: vec![fr_pair(&bob_cm.0.0)],
++    };
++    let call = gate_call(
++        state,
++        rng,
++        permissive.address,
++        AUTHORIZE_ENTRY_POINT,
++        &permissive.op,
++        PERMISSIVE_KEY_LOCATION,
++        program,
++        witness.private_transcript(),
++        None,
++    );
++    Transaction::new(
++        "local-test",
++        test_intents(rng, vec![call], Vec::new(), Vec::new(), state.time),
++        Some(offer),
++        Default::default(),
++    )
++}
++
+ fn read_cell(key: u8, result: AlignedValue) -> Vec<Op<ResultModeVerify, InMemoryDB>> {
+     vec![
+         Op::Dup { n: 0 },
+@@ -240,7 +403,7 @@ fn write_cell(key: u8, value: AlignedValue) -> Vec<Op<ResultModeVerify, InMemory
+ fn gate_call(
+     state: &TestState<InMemoryDB>,
+     rng: &mut StdRng,
+-    gate: &Gate,
++    address: ContractAddress,
+     entry_point: &'static [u8],
+     op: &ContractOperation,
+     key_location: &'static str,
+@@ -254,11 +417,11 @@ fn gate_call(
+     let contract_state = run_against.unwrap_or_else(|| {
+         state
+             .ledger
+-            .index(gate.address)
++            .index(address)
+             .expect("gate deployed")
+             .data
+     });
+-    let context = QueryContext::new(contract_state, gate.address);
++    let context = QueryContext::new(contract_state, address);
+     let pair = partition_transcripts(
+         &[PreTranscript {
+             context,
+@@ -270,7 +433,7 @@ fn gate_call(
+     .expect("transcript partition")[0]
+         .clone();
+     ContractCallPrototype {
+-        address: gate.address,
++        address,
+         entry_point: entry_point.into(),
+         op: op.clone(),
+         guaranteed_public_transcript: pair.0,
+@@ -284,8 +447,8 @@ fn gate_call(
+     }
+ }
+ 
+-/// An unproven `update_root` transaction publishing `new_root` and the token
+-/// type, authenticated with `secret`.
++/// An unproven `update_root` transaction publishing `new_root` only,
++/// authenticated with `secret`. It cannot touch the protected token type.
+ pub fn update_root_tx(
+     state: &TestState<InMemoryDB>,
+     rng: &mut StdRng,
+@@ -297,21 +460,16 @@ pub fn update_root_tx(
+     let mut program = Vec::new();
+     program.extend(read_cell(csl_gate::CELL_ADMIN as u8, admin.into()));
+     program.extend(write_cell(csl_gate::CELL_ROOT as u8, new_root.into()));
+-    program.extend(write_cell(
+-        csl_gate::CELL_TOKEN_TYPE as u8,
+-        gate.token_type.0.into(),
+-    ));
+     let witness = UpdateRootWitness {
+         binding_input: 0.into(),
+         communication_commitment: 0.into(),
+         admin_secret: secret,
+         new_root,
+-        new_token_type: fr_of_hash(&gate.token_type.0),
+     };
+     let call = gate_call(
+         state,
+         rng,
+-        gate,
++        gate.address,
+         UPDATE_ROOT_ENTRY_POINT,
+         &gate.update_root_op,
+         UPDATE_ROOT_KEY_LOCATION,
+@@ -325,6 +483,80 @@ pub fn update_root_tx(
+     )
+ }
+ 
++/// An unproven one-time `init` transaction publishing the first root and the
++/// protected token type, authenticated with `secret`. The transcript's read of
++/// the type cell claims the uninitialized (all-zero) value; the ledger replays
++/// it against current state, so once the cell holds a type no second `init`
++/// can be applied. With `forge_uninitialized_state` the transcript is produced
++/// against a forged copy of the state in which the cell is still zero, which is
++/// what a second initialization attempt has to do to be constructed at all.
++pub fn init_gate_tx(
++    state: &TestState<InMemoryDB>,
++    rng: &mut StdRng,
++    gate: &Gate,
++    new_root: Fr,
++    token_type: ShieldedTokenType,
++    secret: Fr,
++    forge_uninitialized_state: bool,
++) -> UnprovenTx {
++    let admin = csl_gate::admin_key(gate.admin_secret);
++    let mut program = Vec::new();
++    program.extend(read_cell(csl_gate::CELL_ADMIN as u8, admin.into()));
++    program.extend(read_cell(
++        csl_gate::CELL_TOKEN_TYPE as u8,
++        HashOutput([0u8; 32]).into(),
++    ));
++    program.extend(write_cell(csl_gate::CELL_ROOT as u8, new_root.into()));
++    program.extend(write_cell(csl_gate::CELL_TOKEN_TYPE as u8, token_type.0.into()));
++    let witness = InitWitness {
++        binding_input: 0.into(),
++        communication_commitment: 0.into(),
++        admin_secret: secret,
++        new_root,
++        new_token_type: fr_of_hash(&token_type.0),
++    };
++    let run_against = forge_uninitialized_state.then(|| {
++        ChargedState::new(stval!([
++            (gate.current_root),
++            (HashOutput([0u8; 32])),
++            (admin)
++        ]))
++    });
++    let call = gate_call(
++        state,
++        rng,
++        gate.address,
++        INIT_ENTRY_POINT,
++        &gate.init_op,
++        INIT_KEY_LOCATION,
++        program,
++        witness.private_transcript(),
++        run_against,
++    );
++    Transaction::from_intents(
++        "local-test",
++        test_intents(rng, vec![call], Vec::new(), Vec::new(), state.time),
++    )
++}
++
++/// Initializes the gate: publishes the administrator's current whitelist root
++/// and the protected token type, once.
++pub async fn init_gate(
++    state: &mut TestState<InMemoryDB>,
++    rng: &mut StdRng,
++    resolver: &Resolver,
++    gate: &mut Gate,
++) {
++    let root = gate.whitelist.root();
++    let tx = init_gate_tx(state, rng, gate, root, gate.token_type, gate.admin_secret, false);
++    let tx = tx_prove(rng.split(), &tx, resolver).await.expect("init proving");
++    let mut strictness = WellFormedStrictness::default();
++    strictness.enforce_balancing = false;
++    state.assert_apply(&tx, strictness);
++    gate.current_root = root;
++    gate.initialized = true;
++}
++
+ /// Publishes the administrator's current whitelist root (and the token type).
+ pub async fn publish_root(
+     state: &mut TestState<InMemoryDB>,
+@@ -360,6 +592,32 @@ pub fn regulated_coins(state: &TestState<InMemoryDB>, gate: &Gate) -> Vec<Qualif
+         .collect()
+ }
+ 
++/// Coins of an arbitrary token type held by the test wallet.
++pub fn coins_of_type(state: &TestState<InMemoryDB>, token_type: ShieldedTokenType) -> Vec<QualifiedCoinInfo> {
++    state
++        .zswap
++        .coins
++        .iter()
++        .filter(|(_, c)| c.type_ == token_type)
++        .map(|(_, c)| *c)
++        .collect()
++}
++
++/// Issues `value` of an arbitrary token type to the test wallet (state injection).
++pub fn issue_token(state: &mut TestState<InMemoryDB>, rng: &mut StdRng, token_type: ShieldedTokenType, value: u128) {
++    state.rewards_shielded(rng, token_type, value);
++}
++
++/// A token derivation naming the same gate and entry point but a different mint
++/// domain separator, so a *different* token type that still points at this gate.
++pub fn sibling_derivation(gate: &Gate, domain: [u8; 32]) -> TokenDerivation {
++    TokenDerivation {
++        domain_sep: HashOutput(domain),
++        mint_address: ContractAddress(HashOutput(MINT_ADDRESS)),
++        rule: coin_structure::custom_spend::SpendRule::GateContract(gate.address, gate.ep_authorize),
++    }
++}
++
+ /// Knobs for building a guarded transfer with deliberate defects.
+ #[derive(Default)]
+ pub struct TransferOptions<'a> {
+@@ -376,6 +634,20 @@ pub struct TransferOptions<'a> {
+     /// the program against a forged copy of the contract state (T13a). When
+     /// false the gate's current root is claimed (T13b).
+     pub claim_forged_root: bool,
++    /// Spend under this derivation (its token type is used for the output) instead
++    /// of the gate's own: a second asset whose descriptor names the same gate.
++    pub derivation_override: Option<&'a TokenDerivation>,
++    /// Give the gate proof a different blinding than the spend drew (mismatched
++    /// randomness between the two proofs).
++    pub gate_rho_override: Option<Fr>,
++    /// After proving, repoint the input's public routing field to this gate.
++    pub route_gate: Option<ContractAddress>,
++    /// After proving, repoint the input's public entry-point field to this hash.
++    pub route_ep: Option<HashOutput>,
++    /// After proving, alter the input's public binding value.
++    pub tamper_binding: bool,
++    /// After proving, strip the input's policy (present a guarded coin as unguarded).
++    pub omit_policy: bool,
+ }
+ 
+ /// A guarded Alice -> Bob transfer, unproven: one regulated input, one regulated
+@@ -389,16 +661,41 @@ pub fn regulated_transfer_tx(
+     coin: &QualifiedCoinInfo,
+     opts: &TransferOptions<'_>,
+ ) -> UnprovenTx {
+-    let (_, input) = state
++    let derivation = opts.derivation_override.unwrap_or(&gate.derivation);
++    let (_, input, rho) = state
+         .zswap
+-        .spend_with_derivation(rng, &state.zswap_keys, coin, Some(0), &gate.derivation)
++        .spend_with_derivation(rng, &state.zswap_keys, coin, Some(0), derivation)
+         .expect("guarded spend construction");
+     assert!(input.policy.is_some(), "guarded input carries a policy");
++    let rho = rho.expect("a guarded spend has a blinding");
++    // Wire-level tampering with the public routing fields, after proving.
++    let input = {
++        let p = input.policy.as_ref().expect("guarded input");
++        let mut policy = SpendPolicyBinding {
++            gate: p.gate,
++            entry_point_hash: p.entry_point_hash,
++            binding: p.binding,
++        };
++        if let Some(g) = opts.route_gate {
++            policy.gate = g;
++        }
++        if let Some(e) = opts.route_ep {
++            policy.entry_point_hash = e;
++        }
++        if opts.tamper_binding {
++            policy.binding = policy.binding + Fr::from(1);
++        }
++        Input {
++            policy: if opts.omit_policy { None } else { Some(Sp::new(policy)) },
++            ..input.clone()
++        }
++    };
+     let paid = opts.pay_instead.unwrap_or(bob);
++    let out_type = derivation.token_type();
+     let bob_coin = CoinInfo {
+         nonce: rng.r#gen(),
+         value: coin.value,
+-        type_: gate.token_type,
++        type_: out_type,
+     };
+     let output = Output::new(
+         rng,
+@@ -423,33 +720,31 @@ pub fn regulated_transfer_tx(
+         let root = if opts.whitelist_override.is_some() { list.root() } else { gate.current_root };
+         let sender_path = list.path(sender.slot);
+         // What the gate claims to have checked: Bob's coin, whoever the offer actually pays.
+-        let checked_coin = CoinInfo {
+-            nonce: bob_coin.nonce,
+-            value: bob_coin.value,
+-            type_: bob_coin.type_,
+-        };
+-        let checked_commitment: Commitment = checked_coin
++        let checked_commitment: Commitment = bob_coin
+             .commitment(&coin_structure::transfer::Recipient::User(bob.keys.coin_public_key()));
++        // The gate reads its own token-type cell (all zero before `init`) and
++        // computes the binding from that cell with the spend's blinding.
++        let cell_type: HashOutput = if gate.initialized { gate.token_type.0 } else { HashOutput([0u8; 32]) };
++        let gate_rho = opts.gate_rho_override.unwrap_or(rho);
+         let binding = csl_policy_binding(
+             &input.nullifier,
+             &sender.keys.coin_public_key().0,
+-            &gate.address,
+-            &gate.ep_authorize,
++            &ShieldedTokenType(cell_type),
++            gate_rho,
+         );
+         let witness = AuthorizeWitness {
+             binding_input: 0.into(),
+             communication_commitment: 0.into(),
+             root,
+-            token_type: fr_of_hash(&gate.token_type.0),
++            token_type: fr_of_hash(&cell_type),
+             nullifier: fr_of_hash(&input.nullifier.0),
+             sender_pk: fr_pair(&sender.pk()),
+             sender_r: sender.r,
+             sender_path,
+-            gate_address: fr_of_hash(&gate.address.0),
+-            ep_hash: fr_of_hash(&gate.ep_authorize),
++            rho: gate_rho,
+             outputs: vec![OutputWitness {
+                 nonce: fr_of_hash(&bob_coin.nonce.0),
+-                token_type: fr_of_hash(&gate.token_type.0),
++                token_type: fr_of_hash(&out_type.0),
+                 value: Fr::from(bob_coin.value),
+                 recipient_pk: fr_pair(&bob.pk()),
+                 recipient_r: bob.r,
+@@ -464,20 +759,17 @@ pub fn regulated_transfer_tx(
+         let run_against = (claimed_root != gate.current_root).then(|| {
+             ChargedState::new(stval!([
+                 (claimed_root),
+-                (gate.token_type.0),
++                (cell_type),
+                 (csl_gate::admin_key(gate.admin_secret))
+             ]))
+         });
+-        program.extend(read_cell(
+-            csl_gate::CELL_TOKEN_TYPE as u8,
+-            gate.token_type.0.into(),
+-        ));
++        program.extend(read_cell(csl_gate::CELL_TOKEN_TYPE as u8, cell_type.into()));
+         program.extend(kernel_claim_spend_authorization!(binding));
+         program.extend(kernel_claim_output_coverage!(checked_commitment));
+         vec![gate_call(
+             state,
+             rng,
+-            gate,
++            gate.address,
+             AUTHORIZE_ENTRY_POINT,
+             &gate.authorize_op,
+             AUTHORIZE_KEY_LOCATION,
+@@ -504,6 +796,17 @@ pub fn first_input_nullifier(tx: &UnprovenTx) -> Nullifier {
+     input.nullifier
+ }
+ 
++/// The first guaranteed input's spend proof preimage, lifted from an unproven
++/// transaction (used to re-prove the spend with a historical relation).
++pub fn first_input_preimage(tx: &UnprovenTx) -> transient_crypto::proofs::ProofPreimage {
++    let Transaction::Standard(stx) = tx else {
++        panic!("standard transaction expected")
++    };
++    let offer = stx.guaranteed_coins.as_ref().expect("guaranteed offer");
++    let input = offer.inputs.iter().next().expect("one input");
++    (*input.proof).clone()
++}
++
+ /// Pays exactly `fee` Specks of DUST for `tx` from the test wallet in a fee-only
+ /// intent at segment `0xFEED`.
+ pub fn pay_exact_dust_fee(
+@@ -601,11 +904,42 @@ impl Rejection {
+         }
+     }
+ 
+-    /// The proof did not verify under the embedded verifier key.
++    /// A proof did not verify: either a contract (gate) proof under its
++    /// registered key, or the native spend proof under the embedded key.
+     pub fn is_invalid_proof(&self) -> bool {
+         matches!(
+             self,
+             Rejection::Verification(MalformedTransaction::InvalidProof(_))
++                | Rejection::Verification(MalformedTransaction::Zswap(MalformedOffer::InvalidProof(_)))
++        )
++    }
++
++    /// Specifically the native spend proof failed under the embedded verifier
++    /// key with the statement the ledger built from the input's public fields.
++    pub fn is_spend_proof_invalid(&self) -> bool {
++        matches!(
++            self,
++            Rejection::Verification(MalformedTransaction::Zswap(MalformedOffer::InvalidProof(_)))
++        )
++    }
++
++    /// The guarded inputs and the gate claims did not match (the matching rule).
++    pub fn is_authorization_mismatch(&self) -> bool {
++        matches!(
++            self,
++            Rejection::Verification(MalformedTransaction::EffectsCheckFailure(
++                EffectsCheckError::SpendAuthorizationsNEClaimed { .. }
++            ))
++        )
++    }
++
++    /// The claiming gate did not cover exactly its segment's outputs.
++    pub fn is_coverage_mismatch(&self) -> bool {
++        matches!(
++            self,
++            Rejection::Verification(MalformedTransaction::EffectsCheckFailure(
++                EffectsCheckError::OutputCoverageNESegmentCommitments { .. }
++            ))
+         )
+     }
+ 
+@@ -619,6 +953,34 @@ impl Rejection {
+     }
+ }
+ 
++/// Returns a copy of a proven `tx` whose first guaranteed input was altered by
++/// `f` (used to corrupt or replace a spend proof after proving).
++pub fn with_altered_first_input(
++    tx: &Tx<Signature, InMemoryDB>,
++    f: impl FnOnce(&mut Input<Proof, InMemoryDB>),
++) -> Tx<Signature, InMemoryDB> {
++    let mut tx = tx.clone();
++    let Transaction::Standard(stx) = &mut tx else {
++        panic!("standard transaction expected");
++    };
++    let offer = stx
++        .guaranteed_coins
++        .as_ref()
++        .expect("guaranteed offer")
++        .deref()
++        .clone();
++    let mut inputs: Vec<Input<Proof, InMemoryDB>> = offer.inputs.iter_deref().cloned().collect();
++    f(&mut inputs[0]);
++    let altered = Offer {
++        inputs: inputs.into(),
++        outputs: offer.outputs.clone(),
++        transient: offer.transient.clone(),
++        deltas: offer.deltas.clone(),
++    };
++    stx.guaranteed_coins = Some(Sp::new(altered));
++    tx
++}
++
+ /// Pays, proves and applies `tx`, which must not succeed. Panics if the ledger
+ /// accepts and applies it; otherwise reports how it was rejected.
+ pub async fn attempt(
+@@ -675,7 +1037,34 @@ pub async fn fixture(seed: u64) -> Fixture {
+     let bob = Party::new(&mut rng, 2);
+     gate.whitelist.set(alice.slot, alice.leaf());
+     gate.whitelist.set(bob.slot, bob.leaf());
+-    publish_root(&mut state, &mut rng, &resolver, &mut gate).await;
++    init_gate(&mut state, &mut rng, &resolver, &mut gate).await;
++    issue_regulated(&mut state, &mut rng, &gate, AMOUNT);
++    Fixture {
++        rng,
++        state,
++        resolver,
++        gate,
++        alice,
++        bob,
++    }
++}
++
++/// The fixture with Alice and Bob approved and a coin issued, but the gate never
++/// initialized: its type cell is still zero and no root has been published.
++pub async fn fixture_uninitialized(seed: u64) -> Fixture {
++    let mut rng = StdRng::seed_from_u64(seed);
++    let mut state: TestState<InMemoryDB> = TestState::new(&mut rng);
++    state.give_fee_token(&mut rng, 10).await;
++    let resolver = csl_resolver().await;
++    let mut gate = deploy_gate(&mut state, &mut rng, &resolver).await;
++    let alice = Party {
++        keys: state.zswap_keys.clone(),
++        slot: 1,
++        r: rng.r#gen(),
++    };
++    let bob = Party::new(&mut rng, 2);
++    gate.whitelist.set(alice.slot, alice.leaf());
++    gate.whitelist.set(bob.slot, bob.leaf());
+     issue_regulated(&mut state, &mut rng, &gate, AMOUNT);
+     Fixture {
+         rng,
+diff --git a/ledger/tests/csl_regression.rs b/ledger/tests/csl_regression.rs
+new file mode 100644
+index 00000000..6a72f79a
+--- /dev/null
++++ b/ledger/tests/csl_regression.rs
+@@ -0,0 +1,344 @@
++// This file is part of midnight-ledger.
++// Copyright (C) Midnight Foundation
++// SPDX-License-Identifier: Apache-2.0
++// Licensed under the Apache License, Version 2.0 (the "License");
++// You may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++// http://www.apache.org/licenses/LICENSE-2.0
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++//! Regression tests for the regulated ZSwap CSL fixes (fix prompt sections 1-5).
++//!
++//! Every test uses real proofs, strict `Transaction::well_formed`, and state
++//! application. The headline case is the malicious-gate attack of section 1: a
++//! genuine spend whose on-the-wire policy routing fields are repointed to an
++//! attacker-controlled permissive gate. Against the reviewed (pre-fix)
++//! implementation this attack is ACCEPTED (see
++//! `results/attack_reproduction_*_8285f69.log`); the fixed implementation
++//! authenticates the route in the spend statement, so it is rejected at
++//! verification with no state change.
++#![cfg(feature = "proving")]
++
++mod csl_common;
++
++use csl_common::*;
++use midnight_ledger::verify::WellFormedStrictness;
++use midnight_ledger_v10 as midnight_ledger;
++
++fn assert_coin_untouched(before: &midnight_ledger::structure::LedgerState<storage::db::InMemoryDB>, f: &Fixture, nullifier: coin_structure::coin::Nullifier) {
++    assert!(f.state.ledger.zswap.nullifiers.get(&nullifier).is_none(), "the regulated coin must not be consumed");
++    assert_eq!(
++        f.state.ledger.zswap.coin_coms_set.size(),
++        before.zswap.coin_coms_set.size(),
++        "no output may be created"
++    );
++}
++
++// ---------------------------------------------------------------------------
++// Section 1: authenticate the gate the ledger routes on.
++// ---------------------------------------------------------------------------
++
++/// 1a. Gate-address substitution with the genuine binding/proof retained, by a
++/// sender Monument has removed from the whitelist (the decisive scenario).
++#[tokio::test]
++async fn attack_gate_substitution_is_rejected() {
++    let mut f = fixture(0x101).await;
++    let coin = regulated_coins(&f.state, &f.gate)[0];
++    f.gate.whitelist.remove(f.alice.slot);
++    publish_root(&mut f.state, &mut f.rng, &f.resolver, &mut f.gate).await;
++    let permissive =
++        deploy_permissive_gate(&mut f.state, &mut f.rng, &f.resolver, f.gate.token_type).await;
++    let before = f.state.ledger.clone();
++    let tx = attack_substitute_gate_tx(&f.state, &mut f.rng, &f.gate, &permissive, &f.bob, &coin);
++    let nullifier = first_input_nullifier(&tx);
++    let rej = attempt(&mut f.state, &mut f.rng, &f.resolver, tx).await;
++    eprintln!("gate-substitution attack: {}", rej.describe());
++    assert!(rej.is_spend_proof_invalid(), "must fail native spend verification; got {}", rej.describe());
++    assert_coin_untouched(&before, &f, nullifier);
++}
++
++/// 1b. Entry-point substitution: route a genuine spend to a different entry
++/// point hash on the real gate. The statement authenticates the entry point.
++#[tokio::test]
++async fn route_entry_point_substitution_is_rejected() {
++    let mut f = fixture(0x102).await;
++    let coin = regulated_coins(&f.state, &f.gate)[0];
++    let before = f.state.ledger.clone();
++    let opts = TransferOptions { route_ep: Some(f.gate.ep_update_root), ..Default::default() };
++    let tx = regulated_transfer_tx(&f.state, &mut f.rng, &f.gate, &f.alice, &f.bob, &coin, &opts);
++    let nullifier = first_input_nullifier(&tx);
++    let rej = attempt(&mut f.state, &mut f.rng, &f.resolver, tx).await;
++    eprintln!("entry-point substitution: {}", rej.describe());
++    assert!(rej.is_spend_proof_invalid(), "got {}", rej.describe());
++    assert_coin_untouched(&before, &f, nullifier);
++}
++
++/// 1c. A cloned gate with an attacker-controlled whitelist: Alice (revoked at
++/// the real gate) deploys a clone that approves her, and routes to it. The coin
++/// type is bound to the real gate's address, which the clone cannot have, so the
++/// route cannot be authenticated.
++#[tokio::test]
++async fn attack_cloned_gate_is_rejected() {
++    let mut f = fixture(0x103).await;
++    let coin = regulated_coins(&f.state, &f.gate)[0];
++    f.gate.whitelist.remove(f.alice.slot);
++    publish_root(&mut f.state, &mut f.rng, &f.resolver, &mut f.gate).await;
++    // The clone is a real, permissive gate at a fresh address (its "whitelist"
++    // approves everyone). Routing to it is the same class as 1a and is rejected.
++    let clone = deploy_permissive_gate(&mut f.state, &mut f.rng, &f.resolver, f.gate.token_type).await;
++    let before = f.state.ledger.clone();
++    let tx = attack_substitute_gate_tx(&f.state, &mut f.rng, &f.gate, &clone, &f.bob, &coin);
++    let nullifier = first_input_nullifier(&tx);
++    let rej = attempt(&mut f.state, &mut f.rng, &f.resolver, tx).await;
++    eprintln!("cloned-gate attack: {}", rej.describe());
++    assert!(rej.is_spend_proof_invalid(), "got {}", rej.describe());
++    assert_coin_untouched(&before, &f, nullifier);
++}
++
++/// 1d. Omitting the policy (presenting a guarded coin as unguarded) fails: the
++/// spend statement's mode input is authenticated, so an unguarded reading needs
++/// mode 0, which the proof (mode 1) does not provide.
++#[tokio::test]
++async fn omitted_policy_is_rejected() {
++    let mut f = fixture(0x104).await;
++    let coin = regulated_coins(&f.state, &f.gate)[0];
++    let before = f.state.ledger.clone();
++    let opts = TransferOptions { omit_policy: true, omit_gate_call: true, ..Default::default() };
++    let tx = regulated_transfer_tx(&f.state, &mut f.rng, &f.gate, &f.alice, &f.bob, &coin, &opts);
++    let nullifier = first_input_nullifier(&tx);
++    let rej = attempt(&mut f.state, &mut f.rng, &f.resolver, tx).await;
++    eprintln!("omitted policy: {}", rej.describe());
++    assert!(rej.is_spend_proof_invalid(), "got {}", rej.describe());
++    assert_coin_untouched(&before, &f, nullifier);
++}
++
++/// 1e. Omitting the gate call while keeping the policy fails the matching rule.
++#[tokio::test]
++async fn omitted_gate_call_is_rejected() {
++    let mut f = fixture(0x105).await;
++    let coin = regulated_coins(&f.state, &f.gate)[0];
++    let before = f.state.ledger.clone();
++    let opts = TransferOptions { omit_gate_call: true, ..Default::default() };
++    let tx = regulated_transfer_tx(&f.state, &mut f.rng, &f.gate, &f.alice, &f.bob, &coin, &opts);
++    let nullifier = first_input_nullifier(&tx);
++    let rej = attempt(&mut f.state, &mut f.rng, &f.resolver, tx).await;
++    eprintln!("omitted gate call: {}", rej.describe());
++    assert!(rej.is_authorization_mismatch(), "got {}", rej.describe());
++    assert_coin_untouched(&before, &f, nullifier);
++}
++
++/// 1f. The correctly routed approved transfer still succeeds.
++#[tokio::test]
++async fn approved_transfer_still_succeeds() {
++    let mut f = fixture(0x106).await;
++    let coin = regulated_coins(&f.state, &f.gate)[0];
++    let nullifier;
++    let tx = regulated_transfer_tx(&f.state, &mut f.rng, &f.gate, &f.alice, &f.bob, &coin, &Default::default());
++    nullifier = first_input_nullifier(&tx);
++    let proven = pay_and_prove(&mut f.state, &mut f.rng, &f.resolver, tx).await.expect("approved transfer must prove");
++    let result = f.state.apply(&proven, WellFormedStrictness::default()).expect("must be well-formed");
++    assert!(matches!(result, midnight_ledger::semantics::TransactionResult::Success(_)), "got {result:?}");
++    assert!(f.state.ledger.zswap.nullifiers.get(&nullifier).is_some(), "the coin is consumed");
++}
++
++// ---------------------------------------------------------------------------
++// Section 2: the hiding binding.
++// ---------------------------------------------------------------------------
++
++/// 2a. Mismatched blinding between the native spend and the gate proof cannot
++/// authorize: the two bindings differ, so the matching rule rejects it.
++#[tokio::test]
++async fn mismatched_blinding_is_rejected() {
++    let mut f = fixture(0x201).await;
++    let coin = regulated_coins(&f.state, &f.gate)[0];
++    let before = f.state.ledger.clone();
++    let opts = TransferOptions { gate_rho_override: Some(transient_crypto::curve::Fr::from(0xBADBAD)), ..Default::default() };
++    let tx = regulated_transfer_tx(&f.state, &mut f.rng, &f.gate, &f.alice, &f.bob, &coin, &opts);
++    let nullifier = first_input_nullifier(&tx);
++    let rej = attempt(&mut f.state, &mut f.rng, &f.resolver, tx).await;
++    eprintln!("mismatched blinding: {}", rej.describe());
++    assert!(rej.is_authorization_mismatch(), "got {}", rej.describe());
++    assert_coin_untouched(&before, &f, nullifier);
++}
++
++/// 2b. Tampering with the public binding value fails the native spend proof.
++#[tokio::test]
++async fn tampered_binding_is_rejected() {
++    let mut f = fixture(0x202).await;
++    let coin = regulated_coins(&f.state, &f.gate)[0];
++    let before = f.state.ledger.clone();
++    let opts = TransferOptions { tamper_binding: true, ..Default::default() };
++    let tx = regulated_transfer_tx(&f.state, &mut f.rng, &f.gate, &f.alice, &f.bob, &coin, &opts);
++    let nullifier = first_input_nullifier(&tx);
++    let rej = attempt(&mut f.state, &mut f.rng, &f.resolver, tx).await;
++    eprintln!("tampered binding: {}", rej.describe());
++    assert!(rej.is_spend_proof_invalid(), "got {}", rej.describe());
++    assert_coin_untouched(&before, &f, nullifier);
++}
++
++// ---------------------------------------------------------------------------
++// Section 3: protected-token configuration.
++// ---------------------------------------------------------------------------
++
++/// 3a. A transfer fails before the gate's protected type is initialized.
++#[tokio::test]
++async fn transfer_before_initialization_is_rejected() {
++    let mut f = fixture_uninitialized(0x301).await;
++    let coin = regulated_coins(&f.state, &f.gate)[0];
++    let before = f.state.ledger.clone();
++    let tx = regulated_transfer_tx(&f.state, &mut f.rng, &f.gate, &f.alice, &f.bob, &coin, &Default::default());
++    let nullifier = first_input_nullifier(&tx);
++    let rej = attempt(&mut f.state, &mut f.rng, &f.resolver, tx).await;
++    eprintln!("transfer before init: {}", rej.describe());
++    assert!(
++        matches!(rej, Rejection::Proving(_)) || rej.is_authorization_mismatch() || rej.is_spend_proof_invalid(),
++        "a transfer before initialization must be rejected; got {}",
++        rej.describe()
++    );
++    assert_coin_untouched(&before, &f, nullifier);
++}
++
++/// 3b. Initialization cannot be repeated to retarget the protected type: the
++/// honest second `init` claims the cell is still zero and the ledger's replay
++/// rejects it; and a forged-state second `init` (run against a faked zero cell)
++/// is rejected the same way when replayed against real state.
++#[tokio::test]
++async fn second_initialization_cannot_retarget() {
++    let mut f = fixture(0x302).await; // already initialized
++    let other = sibling_derivation(&f.gate, [0x5a; 32]).token_type();
++    // A second `init` can only be *built* against a forged copy of the state in
++    // which the type cell is still zero (an honest second init fails at
++    // transcript construction, because the real cell is no longer zero -- the
++    // one-time guarantee already bites there). The attacker forges that state to
++    // get a provable transcript; the ledger then replays it against the real
++    // (set) cell and rejects it with a read mismatch.
++    let tx = init_gate_tx(&f.state, &mut f.rng, &f.gate, f.gate.current_root, other, f.gate.admin_secret, true);
++    let rej = match midnight_ledger::test_utilities::tx_prove(f.rng.clone(), &tx, &f.resolver).await {
++        Err(e) => Rejection::Proving(format!("{e:?}")),
++        Ok(proven) => {
++            let mut st = WellFormedStrictness::default();
++            st.enforce_balancing = false;
++            apply_rejected(&mut f.state, &proven, st)
++        }
++    };
++    eprintln!("second init (forged state): {}", rej.describe());
++    assert!(rej.is_transcript_failure(), "a forged-state re-init must fail at replay; got {}", rej.describe());
++}
++
++/// 3c. Initialization with the wrong administrator secret cannot be proven.
++#[tokio::test]
++async fn init_with_wrong_admin_is_rejected() {
++    let mut f = fixture_uninitialized(0x303).await;
++    let wrong = transient_crypto::curve::Fr::from(0x1234);
++    let tx = init_gate_tx(&f.state, &mut f.rng, &f.gate, f.gate.whitelist.root(), f.gate.token_type, wrong, false);
++    let rej = match midnight_ledger::test_utilities::tx_prove(f.rng.clone(), &tx, &f.resolver).await {
++        Err(e) => Rejection::Proving(format!("{e:?}")),
++        Ok(proven) => {
++            let mut st = WellFormedStrictness::default();
++            st.enforce_balancing = false;
++            apply_rejected(&mut f.state, &proven, st)
++        }
++    };
++    eprintln!("init with wrong admin: {}", rej.describe());
++    assert!(
++        matches!(rej, Rejection::Proving(_)) || rej.is_invalid_proof(),
++        "an unauthorized init must be rejected; got {}",
++        rej.describe()
++    );
++}
++
++/// 3d. A second asset whose descriptor names the same gate obtains no
++/// authorization at all (not sender-only): its spend binding commits to its own
++/// type, which the gate's cell type does not match.
++#[tokio::test]
++async fn second_asset_at_same_gate_gets_no_authorization() {
++    let mut f = fixture(0x304).await;
++    let deriv2 = sibling_derivation(&f.gate, [0x77; 32]);
++    let t2 = deriv2.token_type();
++    issue_token(&mut f.state, &mut f.rng, t2, AMOUNT);
++    let coin2 = coins_of_type(&f.state, t2)[0];
++    let before = f.state.ledger.clone();
++    let opts = TransferOptions { derivation_override: Some(&deriv2), ..Default::default() };
++    let tx = regulated_transfer_tx(&f.state, &mut f.rng, &f.gate, &f.alice, &f.bob, &coin2, &opts);
++    let nullifier = first_input_nullifier(&tx);
++    let rej = attempt(&mut f.state, &mut f.rng, &f.resolver, tx).await;
++    eprintln!("second asset at same gate: {}", rej.describe());
++    assert!(rej.is_authorization_mismatch(), "got {}", rej.describe());
++    assert_coin_untouched(&before, &f, nullifier);
++}
++
++/// 3e. After an ordinary root update, the protected asset is unchanged: approved
++/// transfers still work and approved -> unapproved is still rejected.
++#[tokio::test]
++async fn protected_asset_survives_root_update() {
++    let mut f = fixture(0x305).await;
++    // A second regulated coin, so one remains after the successful transfer.
++    issue_regulated(&mut f.state, &mut f.rng, &f.gate, AMOUNT);
++    // An ordinary update (re-publishing the same membership) touches only the root.
++    publish_root(&mut f.state, &mut f.rng, &f.resolver, &mut f.gate).await;
++    // Approved -> approved still succeeds: the protected type still authorizes.
++    let coin = regulated_coins(&f.state, &f.gate)[0];
++    let tx = regulated_transfer_tx(&f.state, &mut f.rng, &f.gate, &f.alice, &f.bob, &coin, &Default::default());
++    let proven = pay_and_prove(&mut f.state, &mut f.rng, &f.resolver, tx)
++        .await
++        .expect("approved transfer after update must prove");
++    let result = f.state.apply(&proven, WellFormedStrictness::default()).expect("must be well-formed");
++    assert!(matches!(result, midnight_ledger::semantics::TransactionResult::Success(_)), "got {result:?}");
++    // Approved -> unapproved is still rejected: the gate proof cannot show Carol's
++    // membership, so the (contract) gate proof is invalid.
++    let coin = regulated_coins(&f.state, &f.gate)[0];
++    let carol = Party::new(&mut f.rng, 9);
++    let before = f.state.ledger.clone();
++    let tx = regulated_transfer_tx(&f.state, &mut f.rng, &f.gate, &f.alice, &carol, &coin, &Default::default());
++    let nullifier = first_input_nullifier(&tx);
++    let rej = attempt(&mut f.state, &mut f.rng, &f.resolver, tx).await;
++    eprintln!("approved->unapproved after update: {}", rej.describe());
++    assert!(rej.is_invalid_proof(), "got {}", rej.describe());
++    assert_coin_untouched(&before, &f, nullifier);
++}
++
++// ---------------------------------------------------------------------------
++// Section 5: no active fallback accepts an old-layout spend proof.
++// ---------------------------------------------------------------------------
++
++/// A spend proof in the historical v1 CSL layout (68 public inputs, gate/ep in
++/// the binding, no blinding, no route authenticators), produced by the frozen
++/// `zswap_spend_csl_v1_historical` relation and spliced into an otherwise valid
++/// transfer, is rejected by the ledger's embedded (v2) verifier through the full
++/// `Transaction::well_formed` path.
++#[tokio::test]
++async fn historical_v1_spend_proof_is_rejected_by_the_ledger() {
++    let mut f = fixture(0x501).await;
++    let coin = regulated_coins(&f.state, &f.gate)[0];
++    // Build the unproven transfer and lift the spend preimage out of it.
++    let unproven = regulated_transfer_tx(&f.state, &mut f.rng, &f.gate, &f.alice, &f.bob, &coin, &Default::default());
++    let nullifier = first_input_nullifier(&unproven);
++    let preimage = first_input_preimage(&unproven);
++    let (v1_proof, _pis) = zkir_v2::zswap_spend_csl_v1_historical::prove_v1_from_v2_preimage(
++        f.rng.clone(),
++        &*midnight_ledger::test_utilities::PUBLIC_PARAMS,
++        &preimage,
++    )
++    .await
++    .expect("historical v1 spend proving must succeed");
++    // Prove the transfer normally, then splice the v1-layout spend proof in.
++    let before = f.state.ledger.clone();
++    let proven = pay_and_prove(&mut f.state, &mut f.rng, &f.resolver, unproven)
++        .await
++        .expect("baseline transfer proves");
++    let v1_bytes = v1_proof.bytes.clone();
++    let spliced = with_altered_first_input(&proven, |input| {
++        let mut proof = (*input.proof).clone();
++        proof.bytes = v1_bytes.clone();
++        input.proof = std::sync::Arc::new(proof);
++    });
++    let rej = apply_rejected(&mut f.state, &spliced, WellFormedStrictness::default());
++    eprintln!("spliced historical v1 spend proof: {}", rej.describe());
++    assert!(rej.is_spend_proof_invalid(), "the embedded v2 verifier must reject a v1-layout proof; got {}", rej.describe());
++    assert!(f.state.ledger.zswap.nullifiers.get(&nullifier).is_none(), "coin not consumed");
++    let _ = before;
++}
+diff --git a/zkir/src/csl_gate.rs b/zkir/src/csl_gate.rs
+index 5aef725a..c9e53cd5 100644
+--- a/zkir/src/csl_gate.rs
++++ b/zkir/src/csl_gate.rs
+@@ -15,16 +15,30 @@
+ //! registered as contract operations (`v2` verifier keys, `ProofVersioned::V2`).
+ //!
+ //! Contract state (an array of cells): `[root: Fr, token_type: Bytes<32>, admin: Fr]`.
++//! `token_type` names the single protected asset. It is zero at deployment and
++//! is written exactly once, by `init`.
+ //!
+-//! * `authorize` (one call per segment that spends the regulated type) reads
++//! * `init` (administrator, one time) reads `admin`, reads `token_type`
++//!   *claiming it is still zero* (so the ledger's replay of the transcript fails
++//!   once it has been set), writes `root` and `token_type`, and proves knowledge
++//!   of the administrator secret. It cannot be repeated to retarget the gate.
++//! * `update_root` (administrator) reads `admin` and writes `root` only; it
++//!   cannot touch `token_type`.
++//! * `authorize` (one call per segment that spends the protected type) reads
+ //!   `root` and `token_type`, claims the policy binding of the guarded input
+ //!   (effects index 9) and every output commitment of the segment (effects
+-//!   index 10), and proves: the sender's key is in the whitelist under `root`;
+-//!   the binding is `Poseidon(DOM_BIND, nullifier, sender, gate, ep_hash)` for
+-//!   that sender; every claimed output commitment opens to a user-owned coin,
+-//!   and if its type is `token_type` the recipient's key is in the whitelist.
+-//! * `update_root` (administrator) reads `admin`, writes `root` and
+-//!   `token_type`, and proves knowledge of the administrator secret.
++//!   index 10), and proves: `token_type` is initialized (non-zero); the sender's
++//!   key is in the whitelist under `root`; the binding is
++//!   `Poseidon(DOM_BIND, nullifier, sender, token_type, rho)` for that sender
++//!   and for the *cell's* token type. The ledger requires this value to equal
++//!   the binding inside the spend proof, which commits to the *spent coin's*
++//!   type, so the gate can only authorize spends of its own protected asset;
++//!   a second asset pointed at this gate obtains no authorization at all rather
++//!   than sender-only checks. Every claimed output commitment opens to a
++//!   user-owned coin, and if its type is `token_type` the recipient's key is in
++//!   the whitelist. The gate address and entry point are not in the binding:
++//!   the spend statement authenticates them directly and the ledger matches on
++//!   them (see `zswap::verify`).
+ //!
+ //! A contract call's public inputs are, in order, the transaction binding
+ //! input, the communication commitment and the field representation of the
+@@ -64,9 +78,12 @@ pub const KEY_PREFIX: &str = "midnight/csl-gate/";
+ pub const AUTHORIZE_KEY_LOCATION: &str = "midnight/csl-gate/authorize";
+ /// Key location of the `update_root` entry point.
+ pub const UPDATE_ROOT_KEY_LOCATION: &str = "midnight/csl-gate/update-root";
++/// Key location of the one-time `init` entry point.
++pub const INIT_KEY_LOCATION: &str = "midnight/csl-gate/init";
+ /// Entry point names as they appear in the contract's operation map.
+ pub const AUTHORIZE_ENTRY_POINT: &[u8] = b"authorize";
+ pub const UPDATE_ROOT_ENTRY_POINT: &[u8] = b"update_root";
++pub const INIT_ENTRY_POINT: &[u8] = b"init";
+ 
+ /// Outputs covered by one `authorize` call in the first supported shape.
+ pub const N_OUTPUTS: usize = 1;
+@@ -176,11 +193,25 @@ pub fn authorize_template() -> Vec<Pi> {
+     t
+ }
+ 
+-/// The transcript template of `update_root`.
++/// The transcript template of `update_root`: the administrator proof and a
++/// write of `root` only. The protected token type is not touched.
+ pub fn update_root_template() -> Vec<Pi> {
+     let mut t = Vec::new();
+     t.extend(read_fr(CELL_ADMIN, Pi::Admin));
+     t.extend(write_fr(CELL_ROOT, Pi::NewRoot));
++    t
++}
++
++/// The transcript template of `init`: the administrator proof, a read of
++/// `token_type` that claims the all-zero (uninitialized) value, and writes of
++/// `root` and `token_type`. The claimed zero read is what makes `init` one-time:
++/// the ledger replays the transcript against the contract's current state and
++/// rejects it with a read mismatch once the cell holds a type.
++pub fn init_template() -> Vec<Pi> {
++    let mut t = Vec::new();
++    t.extend(read_fr(CELL_ADMIN, Pi::Admin));
++    t.extend(read_bytes32(CELL_TOKEN_TYPE, Pi::C(0), Pi::C(0)));
++    t.extend(write_fr(CELL_ROOT, Pi::NewRoot));
+     t.extend(write_bytes32(CELL_TOKEN_TYPE, Pi::NewTokenHi, Pi::NewTokenLo));
+     t
+ }
+@@ -220,8 +251,8 @@ pub struct AuthorizeWitness {
+     pub sender_pk: [Fr; 2],
+     pub sender_r: Fr,
+     pub sender_path: [(Fr, bool); WHITELIST_DEPTH],
+-    pub gate_address: [Fr; 2],
+-    pub ep_hash: [Fr; 2],
++    /// The spend's blinding, shared privately by the wallet with this proof.
++    pub rho: Fr,
+     pub outputs: Vec<OutputWitness>,
+ }
+ 
+@@ -232,6 +263,15 @@ pub struct UpdateRootWitness {
+     pub communication_commitment: Fr,
+     pub admin_secret: Fr,
+     pub new_root: Fr,
++}
++
++/// Witness of the one-time `init`.
++#[derive(Clone, Debug)]
++pub struct InitWitness {
++    pub binding_input: Fr,
++    pub communication_commitment: Fr,
++    pub admin_secret: Fr,
++    pub new_root: Fr,
+     pub new_token_type: [Fr; 2],
+ }
+ 
+@@ -257,10 +297,13 @@ fn fields_to_path(fields: &[Fr]) -> Result<[(Fr, bool); WHITELIST_DEPTH], anyhow
+     Ok(path)
+ }
+ 
+-/// Private-transcript length of `authorize`.
+-pub const AUTHORIZE_PRIVATE_LEN: usize = 3 + 4 + 1 + 2 * WHITELIST_DEPTH + 4 + N_OUTPUTS * (7 + 1 + 2 * WHITELIST_DEPTH);
++/// Private-transcript length of `authorize`:
++/// root, token type, nullifier, sender key, sender randomness, sender path, rho, outputs.
++pub const AUTHORIZE_PRIVATE_LEN: usize = 3 + 4 + 1 + 2 * WHITELIST_DEPTH + 1 + N_OUTPUTS * (8 + 2 * WHITELIST_DEPTH);
+ /// Private-transcript length of `update_root`.
+-pub const UPDATE_ROOT_PRIVATE_LEN: usize = 4;
++pub const UPDATE_ROOT_PRIVATE_LEN: usize = 2;
++/// Private-transcript length of `init`.
++pub const INIT_PRIVATE_LEN: usize = 4;
+ 
+ impl AuthorizeWitness {
+     /// The private transcript carried by the proof preimage.
+@@ -271,8 +314,7 @@ impl AuthorizeWitness {
+         v.extend(self.sender_pk);
+         v.push(self.sender_r);
+         v.extend(path_to_fields(&self.sender_path));
+-        v.extend(self.gate_address);
+-        v.extend(self.ep_hash);
++        v.push(self.rho);
+         for o in &self.outputs {
+             v.extend(o.nonce);
+             v.extend(o.token_type);
+@@ -306,8 +348,7 @@ impl AuthorizeWitness {
+         let pk = take(2);
+         let sender_r = take(1)[0];
+         let sender_path = fields_to_path(&take(2 * WHITELIST_DEPTH))?;
+-        let gate = take(2);
+-        let ep = take(2);
++        let rho = take(1)[0];
+         let mut outputs = Vec::with_capacity(N_OUTPUTS);
+         for _ in 0..N_OUTPUTS {
+             let nonce = take(2);
+@@ -334,8 +375,7 @@ impl AuthorizeWitness {
+             sender_pk: [pk[0], pk[1]],
+             sender_r,
+             sender_path,
+-            gate_address: [gate[0], gate[1]],
+-            ep_hash: [ep[0], ep[1]],
++            rho,
+             outputs,
+         })
+     }
+@@ -343,7 +383,7 @@ impl AuthorizeWitness {
+ 
+ impl UpdateRootWitness {
+     pub fn private_transcript(&self) -> Vec<Fr> {
+-        vec![self.admin_secret, self.new_root, self.new_token_type[0], self.new_token_type[1]]
++        vec![self.admin_secret, self.new_root]
+     }
+ 
+     pub fn from_preimage(preimage: &ProofPreimage) -> Result<Self, anyhow::Error> {
+@@ -360,6 +400,29 @@ impl UpdateRootWitness {
+             communication_commitment: cc,
+             admin_secret: p[0],
+             new_root: p[1],
++        })
++    }
++}
++
++impl InitWitness {
++    pub fn private_transcript(&self) -> Vec<Fr> {
++        vec![self.admin_secret, self.new_root, self.new_token_type[0], self.new_token_type[1]]
++    }
++
++    pub fn from_preimage(preimage: &ProofPreimage) -> Result<Self, anyhow::Error> {
++        let p = &preimage.private_transcript;
++        if p.len() != INIT_PRIVATE_LEN {
++            anyhow::bail!("init preimage has {} private elements, expected {}", p.len(), INIT_PRIVATE_LEN);
++        }
++        let cc = preimage
++            .communications_commitment
++            .map(|(c, _)| c)
++            .ok_or_else(|| anyhow::anyhow!("gate call preimage must carry a communication commitment"))?;
++        Ok(InitWitness {
++            binding_input: preimage.binding_input,
++            communication_commitment: cc,
++            admin_secret: p[0],
++            new_root: p[1],
+             new_token_type: [p[2], p[3]],
+         })
+     }
+@@ -505,10 +568,9 @@ impl Relation for GateAuthorize {
+         let sender_pk = assign2(layouter, w.map(|w| w.sender_pk))?;
+         let sender_r = assign(layouter, w.map(|w| w.sender_r))?;
+         let sender_path = assign_path(layouter, w.map(|w| w.sender_path))?;
+-        let gate = assign2(layouter, w.map(|w| w.gate_address))?;
+-        let ep = assign2(layouter, w.map(|w| w.ep_hash))?;
++        let rho = assign(layouter, w.map(|w| w.rho))?;
+ 
+-        for [hi, lo] in [&token_type, &nullifier, &sender_pk, &gate, &ep] {
++        for [hi, lo] in [&token_type, &nullifier, &sender_pk] {
+             check_bytes32(std, layouter, hi, lo)?;
+         }
+ 
+@@ -522,7 +584,25 @@ impl Relation for GateAuthorize {
+         let sender_root = fold_path(std, layouter, &sender_leaf, &sender_path)?;
+         std.assert_equal(layouter, &sender_root, &root)?;
+ 
+-        // The policy binding for exactly this sender and nullifier.
++        // The gate must be initialized: an all-zero token-type cell authorizes
++        // nothing (no real coin has the all-zero guarded type anyway, but the
++        // failure is made explicit here).
++        let tt_hi_zero = {
++            let b = std.is_zero(layouter, &token_type[0])?;
++            std.convert(layouter, &b)?
++        };
++        let tt_lo_zero = {
++            let b = std.is_zero(layouter, &token_type[1])?;
++            std.convert(layouter, &b)?
++        };
++        let uninitialized = cond_select(std, layouter, &tt_hi_zero, &tt_lo_zero, &zero)?;
++        std.assert_equal(layouter, &uninitialized, &zero)?;
++
++        // The hiding policy binding for exactly this sender and nullifier, the
++        // gate's own protected token type (the cell just read, which the ledger
++        // replays), and the spend's blinding `rho`. The ledger requires it to
++        // equal the spend proof's binding, which commits to the spent coin's
++        // type, so only coins of the protected type can ever be authorized here.
+         let dom_bind: Assigned = std.assign_fixed(layouter, cvt(bind_domain().0))?;
+         let binding = std.poseidon(
+             layouter,
+@@ -532,10 +612,9 @@ impl Relation for GateAuthorize {
+                 nullifier[1].clone(),
+                 sender_pk[0].clone(),
+                 sender_pk[1].clone(),
+-                gate[0].clone(),
+-                gate[1].clone(),
+-                ep[0].clone(),
+-                ep[1].clone(),
++                token_type[0].clone(),
++                token_type[1].clone(),
++                rho,
+             ],
+         )?;
+ 
+@@ -645,6 +724,74 @@ impl Relation for GateUpdateRoot {
+         Ok(instance.clone())
+     }
+ 
++    fn circuit(
++        &self,
++        std: &ZkStdLib,
++        layouter: &mut impl Layouter<OldScalar>,
++        _instance: Value<Self::Instance>,
++        witness: Value<Self::Witness>,
++    ) -> Result<(), Error> {
++        let w = witness.as_ref();
++        let assign = |layouter: &mut _, v: Value<Fr>| -> Result<Assigned, Error> {
++            std.assign(layouter, v.map(|f| cvt(f.0)))
++        };
++        let binding_input = assign(layouter, w.map(|w| w.binding_input))?;
++        let cc = assign(layouter, w.map(|w| w.communication_commitment))?;
++        let secret = assign(layouter, w.map(|w| w.admin_secret))?;
++        let new_root = assign(layouter, w.map(|w| w.new_root))?;
++        let dom: Assigned = std.assign_fixed(layouter, cvt(admin_domain().0))?;
++        let admin = std.poseidon(layouter, &[dom, secret])?;
++
++        let template = update_root_template();
++        let body = emit_template(std, layouter, &template, |pi| match pi {
++            Pi::Admin => admin.clone(),
++            Pi::NewRoot => new_root.clone(),
++            _ => unreachable!("hole kind not used by update_root"),
++        })?;
++        let mut pis = vec![binding_input, cc];
++        pis.extend(body);
++        pis.iter()
++            .try_for_each(|pi| std.constrain_as_public_input(layouter, pi))
++    }
++
++    fn used_chips(&self) -> ZkStdLibArch {
++        ZkStdLibArch {
++            jubjub: false,
++            poseidon: true,
++            sha2_256: false,
++            sha2_512: false,
++            sha3_256: false,
++            keccak_256: false,
++            blake2b: false,
++            nr_pow2range_cols: 1,
++            secp256k1: false,
++            bls12_381: false,
++            base64: false,
++            automaton: false,
++        }
++    }
++
++    fn write_relation<W: std::io::Write>(&self, _writer: &mut W) -> std::io::Result<()> {
++        Ok(())
++    }
++
++    fn read_relation<R: std::io::Read>(_reader: &mut R) -> std::io::Result<Self> {
++        Ok(GateUpdateRoot)
++    }
++}
++
++/// The one-time `init` relation.
++#[derive(Clone, Debug, Default)]
++pub struct GateInit;
++
++impl Relation for GateInit {
++    type Instance = Vec<OldScalar>;
++    type Witness = InitWitness;
++
++    fn format_instance(instance: &Self::Instance) -> Result<Vec<OldScalar>, Error> {
++        Ok(instance.clone())
++    }
++
+     fn circuit(
+         &self,
+         std: &ZkStdLib,
+@@ -663,16 +810,29 @@ impl Relation for GateUpdateRoot {
+         let tt_hi = assign(layouter, w.map(|w| w.new_token_type[0]))?;
+         let tt_lo = assign(layouter, w.map(|w| w.new_token_type[1]))?;
+         check_bytes32(std, layouter, &tt_hi, &tt_lo)?;
++        // The protected type must be a real (non-zero) type, or the gate would
++        // stay in its uninitialized state while claiming to be set.
++        let zero: Assigned = std.assign_fixed(layouter, OldScalar::from(0))?;
++        let hi_zero = {
++            let b = std.is_zero(layouter, &tt_hi)?;
++            std.convert(layouter, &b)?
++        };
++        let lo_zero = {
++            let b = std.is_zero(layouter, &tt_lo)?;
++            std.convert(layouter, &b)?
++        };
++        let both_zero = cond_select(std, layouter, &hi_zero, &lo_zero, &zero)?;
++        std.assert_equal(layouter, &both_zero, &zero)?;
+         let dom: Assigned = std.assign_fixed(layouter, cvt(admin_domain().0))?;
+         let admin = std.poseidon(layouter, &[dom, secret])?;
+ 
+-        let template = update_root_template();
++        let template = init_template();
+         let body = emit_template(std, layouter, &template, |pi| match pi {
+             Pi::Admin => admin.clone(),
+             Pi::NewRoot => new_root.clone(),
+             Pi::NewTokenHi => tt_hi.clone(),
+             Pi::NewTokenLo => tt_lo.clone(),
+-            _ => unreachable!("hole kind not used by update_root"),
++            _ => unreachable!("hole kind not used by init"),
+         })?;
+         let mut pis = vec![binding_input, cc];
+         pis.extend(body);
+@@ -702,7 +862,164 @@ impl Relation for GateUpdateRoot {
+     }
+ 
+     fn read_relation<R: std::io::Read>(_reader: &mut R) -> std::io::Result<Self> {
+-        Ok(GateUpdateRoot)
++        Ok(GateInit)
++    }
++}
++
++// ---------------------------------------------------------------------------
++// Adversarial test infrastructure: a malicious "permissive" gate.
++//
++// This relation is NEVER embedded, resolved, or reachable on any production
++// path. It exists so the regulated-ZSwap regression suite can deploy a real,
++// attacker-controlled contract that emits the exact `authorize` transcript
++// (reading its own cells and claiming a spend authorization plus output
++// coverage) WITHOUT proving whitelist membership or that the claimed binding
++// is correct. It is the concrete "arbitrary claiming contract" the ledger must
++// refuse to let redirect authorization. See `ledger/tests/csl_regression.rs`.
++// ---------------------------------------------------------------------------
++
++/// Key location of the permissive (malicious) gate's authorize entry point.
++pub const PERMISSIVE_KEY_LOCATION: &str = "midnight/csl-gate/authorize-permissive";
++
++/// Witness of the permissive gate: the values it rubber-stamps, with no proof
++/// that any of them is correct.
++#[derive(Clone, Debug)]
++pub struct PermissiveWitness {
++    pub binding_input: Fr,
++    pub communication_commitment: Fr,
++    pub root: Fr,
++    pub token_type: [Fr; 2],
++    pub binding: Fr,
++    pub commitments: Vec<[Fr; 2]>,
++}
++
++/// Private-transcript length of the permissive gate.
++pub const PERMISSIVE_PRIVATE_LEN: usize = 1 + 2 + 1 + N_OUTPUTS * 2;
++
++impl PermissiveWitness {
++    pub fn private_transcript(&self) -> Vec<Fr> {
++        let mut v = vec![self.root];
++        v.extend(self.token_type);
++        v.push(self.binding);
++        for c in &self.commitments {
++            v.extend(*c);
++        }
++        debug_assert_eq!(v.len(), PERMISSIVE_PRIVATE_LEN);
++        v
++    }
++
++    pub fn from_preimage(preimage: &ProofPreimage) -> Result<Self, anyhow::Error> {
++        let p = &preimage.private_transcript;
++        if p.len() != PERMISSIVE_PRIVATE_LEN {
++            anyhow::bail!(
++                "permissive preimage has {} private elements, expected {}",
++                p.len(),
++                PERMISSIVE_PRIVATE_LEN
++            );
++        }
++        let cc = preimage
++            .communications_commitment
++            .map(|(c, _)| c)
++            .ok_or_else(|| anyhow::anyhow!("gate call preimage must carry a communication commitment"))?;
++        let mut i = 0;
++        let mut take = |n: usize| {
++            let s = &p[i..i + n];
++            i += n;
++            s.to_vec()
++        };
++        let root = take(1)[0];
++        let tt = take(2);
++        let binding = take(1)[0];
++        let mut commitments = Vec::with_capacity(N_OUTPUTS);
++        for _ in 0..N_OUTPUTS {
++            let c = take(2);
++            commitments.push([c[0], c[1]]);
++        }
++        Ok(PermissiveWitness {
++            binding_input: preimage.binding_input,
++            communication_commitment: cc,
++            root,
++            token_type: [tt[0], tt[1]],
++            binding,
++            commitments,
++        })
++    }
++}
++
++/// The permissive (malicious) gate relation: it emits exactly the `authorize`
++/// transcript but proves nothing about the values it claims.
++#[derive(Clone, Debug, Default)]
++pub struct GatePermissive;
++
++impl Relation for GatePermissive {
++    type Instance = Vec<OldScalar>;
++    type Witness = PermissiveWitness;
++
++    fn format_instance(instance: &Self::Instance) -> Result<Vec<OldScalar>, Error> {
++        Ok(instance.clone())
++    }
++
++    fn circuit(
++        &self,
++        std: &ZkStdLib,
++        layouter: &mut impl Layouter<OldScalar>,
++        _instance: Value<Self::Instance>,
++        witness: Value<Self::Witness>,
++    ) -> Result<(), Error> {
++        let w = witness.as_ref();
++        let assign = |layouter: &mut _, v: Value<Fr>| -> Result<Assigned, Error> {
++            std.assign(layouter, v.map(|f| cvt(f.0)))
++        };
++        let binding_input = assign(layouter, w.map(|w| w.binding_input))?;
++        let cc = assign(layouter, w.map(|w| w.communication_commitment))?;
++        let root = assign(layouter, w.map(|w| w.root))?;
++        let tt_hi = assign(layouter, w.map(|w| w.token_type[0]))?;
++        let tt_lo = assign(layouter, w.map(|w| w.token_type[1]))?;
++        let binding = assign(layouter, w.map(|w| w.binding))?;
++        let mut cms = Vec::with_capacity(N_OUTPUTS);
++        for i in 0..N_OUTPUTS {
++            let hi = assign(layouter, w.map(|w| w.commitments[i][0]))?;
++            let lo = assign(layouter, w.map(|w| w.commitments[i][1]))?;
++            cms.push((hi, lo));
++        }
++        let body = emit_template(std, layouter, &authorize_template(), |pi| match pi {
++            Pi::Root => root.clone(),
++            Pi::TokenHi => tt_hi.clone(),
++            Pi::TokenLo => tt_lo.clone(),
++            Pi::Binding => binding.clone(),
++            Pi::CmHi(i) => cms[i].0.clone(),
++            Pi::CmLo(i) => cms[i].1.clone(),
++            _ => unreachable!("hole kind not used by permissive gate"),
++        })?;
++        let mut pis = vec![binding_input, cc];
++        pis.extend(body);
++        pis.iter()
++            .try_for_each(|pi| std.constrain_as_public_input(layouter, pi))
++    }
++
++    fn used_chips(&self) -> ZkStdLibArch {
++        ZkStdLibArch {
++            jubjub: false,
++            poseidon: false,
++            sha2_256: false,
++            sha2_512: false,
++            sha3_256: false,
++            keccak_256: false,
++            blake2b: false,
++            nr_pow2range_cols: 1,
++            secp256k1: false,
++            bls12_381: false,
++            base64: false,
++            automaton: false,
++        }
++    }
++
++    fn write_relation<W: std::io::Write>(&self, _writer: &mut W) -> std::io::Result<()> {
++        Ok(())
++    }
++
++    fn read_relation<R: std::io::Read>(_reader: &mut R) -> std::io::Result<Self> {
++        Ok(GatePermissive)
+     }
+ }
+ 
+@@ -715,6 +1032,8 @@ pub struct GateKeys<R: Relation> {
+ 
+ static AUTHORIZE_KEYS: OnceLock<Arc<GateKeys<GateAuthorize>>> = OnceLock::new();
+ static UPDATE_ROOT_KEYS: OnceLock<Arc<GateKeys<GateUpdateRoot>>> = OnceLock::new();
++static INIT_KEYS: OnceLock<Arc<GateKeys<GateInit>>> = OnceLock::new();
++static PERMISSIVE_KEYS: OnceLock<Arc<GateKeys<GatePermissive>>> = OnceLock::new();
+ 
+ async fn gen_keys<R: Relation + Default>(
+     params: &impl transient_crypto::proofs::ParamsProverProvider,
+@@ -747,6 +1066,27 @@ pub async fn update_root_keys(
+     Ok(UPDATE_ROOT_KEYS.get_or_init(|| Arc::new(keys)).clone())
+ }
+ 
++pub async fn init_keys(
++    params: &impl transient_crypto::proofs::ParamsProverProvider,
++) -> Result<Arc<GateKeys<GateInit>>, anyhow::Error> {
++    if let Some(k) = INIT_KEYS.get() {
++        return Ok(k.clone());
++    }
++    let keys = gen_keys::<GateInit>(params).await?;
++    Ok(INIT_KEYS.get_or_init(|| Arc::new(keys)).clone())
++}
++
++/// Keys of the adversarial permissive gate (test infrastructure only).
++pub async fn permissive_keys(
++    params: &impl transient_crypto::proofs::ParamsProverProvider,
++) -> Result<Arc<GateKeys<GatePermissive>>, anyhow::Error> {
++    if let Some(k) = PERMISSIVE_KEYS.get() {
++        return Ok(k.clone());
++    }
++    let keys = gen_keys::<GatePermissive>(params).await?;
++    Ok(PERMISSIVE_KEYS.get_or_init(|| Arc::new(keys)).clone())
++}
++
+ fn vk_bytes(vk: &MidnightVK) -> Result<Vec<u8>, anyhow::Error> {
+     let vk = transient_crypto_old::proofs::VerifierKey::from(vk.clone());
+     let mut bytes = Vec::new();
+@@ -762,6 +1102,8 @@ pub async fn verifier_key_bytes(
+     Ok(match key_location {
+         AUTHORIZE_KEY_LOCATION => Some(vk_bytes(&authorize_keys(params).await?.vk)?),
+         UPDATE_ROOT_KEY_LOCATION => Some(vk_bytes(&update_root_keys(params).await?.vk)?),
++        INIT_KEY_LOCATION => Some(vk_bytes(&init_keys(params).await?.vk)?),
++        PERMISSIVE_KEY_LOCATION => Some(vk_bytes(&permissive_keys(params).await?.vk)?),
+         _ => None,
+     })
+ }
+@@ -821,6 +1163,34 @@ pub async fn prove_from_preimage(
+             )
+             .map_err(|e| anyhow::anyhow!("gate update_root prove: {e}"))?
+         }
++        INIT_KEY_LOCATION => {
++            let witness = InitWitness::from_preimage(preimage)?;
++            let keys = init_keys(params).await?;
++            let params_k = transient_crypto_old::proofs::ParamsProverProvider::get_params(&V1Params(params), keys.k).await?;
++            midnight_zk_stdlib_v1::prove::<_, transient_crypto_old::proofs::TranscriptHash>(
++                params_k.as_ref(),
++                &keys.pk,
++                &GateInit,
++                &pis,
++                witness,
++                rng,
++            )
++            .map_err(|e| anyhow::anyhow!("gate init prove: {e}"))?
++        }
++        PERMISSIVE_KEY_LOCATION => {
++            let witness = PermissiveWitness::from_preimage(preimage)?;
++            let keys = permissive_keys(params).await?;
++            let params_k = transient_crypto_old::proofs::ParamsProverProvider::get_params(&V1Params(params), keys.k).await?;
++            midnight_zk_stdlib_v1::prove::<_, transient_crypto_old::proofs::TranscriptHash>(
++                params_k.as_ref(),
++                &keys.pk,
++                &GatePermissive,
++                &pis,
++                witness,
++                rng,
++            )
++            .map_err(|e| anyhow::anyhow!("permissive gate prove: {e}"))?
++        }
+         other => anyhow::bail!("not a CSL gate key location: {other}"),
+     };
+     Ok(Proof::from_bytes(bytes))
+diff --git a/zkir/src/lib.rs b/zkir/src/lib.rs
+index 80418381..a8f3529f 100644
+--- a/zkir/src/lib.rs
++++ b/zkir/src/lib.rs
+@@ -25,6 +25,8 @@ pub mod csl_gate;
+ pub mod csl_whitelist;
+ pub mod zswap_spend;
+ pub mod zswap_spend_csl;
++/// Historical (superseded) CSL spend relation; test evidence only, never dispatched.
++pub mod zswap_spend_csl_v1_historical;
+ 
+ pub use ir::{Instruction, IrMinorVersion, IrSource};
+ pub use ir_vm::Preprocessed;
+diff --git a/zkir/src/zswap_spend_csl.rs b/zkir/src/zswap_spend_csl.rs
+index 98c8f6cb..c2da8b2a 100644
+--- a/zkir/src/zswap_spend_csl.rs
++++ b/zkir/src/zswap_spend_csl.rs
+@@ -15,8 +15,9 @@
+ //!
+ //! This relation is the production spend circuit of the regulated ZSwap
+ //! experiment. It proves everything [`ZswapSpend`](crate::zswap_spend::ZswapSpend)
+-//! proves, with the same 68 public inputs in the same order, plus two CSL
+-//! obligations that are asserted unconditionally on every spend:
++//! proves, with the legacy 68 public inputs in the same order followed by five
++//! appended route authenticators, plus three CSL obligations that are asserted
++//! unconditionally on every spend:
+ //!
+ //! 1. *Type re-derivation.* The coin's token type is the ledger derivation of a
+ //!    witnessed `(domain separator, minting contract address, spend rule)`:
+@@ -27,17 +28,29 @@
+ //!    The all-zero native token type is accepted under `Empty` without a
+ //!    preimage. `GateCircuit` descriptors cannot be expressed (the rule kind
+ //!    is a bit) and therefore fail closed.
+-//! 2. *Policy binding.* The first public input, the binding slot that is
+-//!    constant zero for every spend today, becomes
+-//!    `Poseidon(DOM_BIND, nullifier, sender, gate, ep_hash)` for guarded coins
+-//!    and stays `0` for `Empty` coins. `sender` is the coin public key derived
+-//!    in-circuit from the spending key (or the owning contract address). The
+-//!    ledger matches this value against the gate contract's claimed
+-//!    authorizations, so a guarded coin cannot be spent without a bound gate
+-//!    call, and the gate cannot be shown a different sender than the one whose
+-//!    key authorizes the spend.
++//! 2. *Hiding policy binding.* The first public input, the binding slot that
++//!    is constant zero for every spend today, becomes
++//!    `Poseidon(DOM_BIND, nullifier, sender, token_type, rho)` for guarded
++//!    coins and stays `0` for `Empty` coins. `sender` is the coin public key
++//!    derived in-circuit from the spending key (or the owning contract
++//!    address); `token_type` is the coin's own type, pinned by the commitment
++//!    opening and the derivation; `rho` is fresh per-spend randomness that is a
++//!    private witness here and in the gate proof. The ledger matches this value
++//!    against the gate contract's claimed authorizations, so a guarded coin
++//!    cannot be spent without a bound gate call, the gate cannot be shown a
++//!    different sender or a different token type than the ones that authorize
++//!    the spend, and an observer who knows a candidate sender key cannot
++//!    recompute the binding (it hides behind `rho`).
++//! 3. *Authenticated route.* Five public inputs appended after the legacy 68,
++//!    `[mode, gate_hi, gate_lo, ep_hi, ep_lo]`, are constrained to the rule kind
++//!    and the witnessed gate address and entry point that the type derivation
++//!    pins (all zero for `Empty`). The verifier fills them from the input's
++//!    public `policy` fields, so the routing fields the ledger matches on are
++//!    authenticated by the proof: a guarded coin cannot be routed to another
++//!    contract or entry point, and cannot be presented as unguarded by omitting
++//!    its policy, because the proof itself says which gate and mode it has.
+ //!
+-//! Witness layout: nine CSL field elements are *prepended* to the legacy
++//! Witness layout: ten CSL field elements are *prepended* to the legacy
+ //! [`SpendWitness`] layout, so the tail-based accessors on `ProofPreimage`
+ //! (`Input::delta`, `Input::binding_randomness`) keep working unchanged.
+ 
+@@ -69,10 +82,16 @@ use crate::zswap_spend::{
+ };
+ use base_crypto::fab::{Alignment, AlignmentAtom, AlignmentSegment};
+ 
+-/// Number of CSL witness elements prepended to the legacy spend witness.
+-pub const CSL_PREFIX_INPUTS: usize = 9;
++/// Number of CSL witness elements prepended to the legacy spend witness:
++/// `[rule_kind, domain_sep(2), mint_address(2), gate(2), ep_hash(2), rho]`.
++pub const CSL_PREFIX_INPUTS: usize = 10;
+ /// Total witness length of the CSL spend circuit.
+ pub const NUM_INPUTS: usize = CSL_PREFIX_INPUTS + LEGACY_NUM_INPUTS;
++/// Number of appended route authenticators: `[mode, gate_hi, gate_lo, ep_hi, ep_lo]`.
++pub const ROUTE_PUBLIC_INPUTS: usize = 5;
++/// Public inputs of the CSL spend circuit: the legacy 68 (binding in slot 0)
++/// followed by the five route authenticators.
++pub const CSL_NUM_PUBLIC_INPUTS: usize = NUM_PUBLIC_INPUTS + ROUTE_PUBLIC_INPUTS;
+ 
+ /// Key location under which the ledger requests zswap spend proofs.
+ pub const SPEND_KEY_LOCATION: &str = "midnight/zswap/spend";
+@@ -89,8 +108,8 @@ pub const GATE_CONTRACT_DISCRIMINANT: u8 = 2;
+ /// The inner domain separator of token-type derivation, zero-padded to 32 bytes
+ /// (see `coin_structure::contract::ContractAddress::custom_token_type`).
+ pub const DERIVE_TOKEN_SEP: [u8; 32] = *b"midnight:derive_token\0\0\0\0\0\0\0\0\0\0\0";
+-/// Poseidon domain for the policy binding.
+-pub const BIND_DOMAIN_SEP: &[u8; 21] = b"midnight:csl-bind[v1]";
++/// Poseidon domain for the policy binding (v2: hiding, token-type bound).
++pub const BIND_DOMAIN_SEP: &[u8; 21] = b"midnight:csl-bind[v2]";
+ 
+ /// Field constant for [`BIND_DOMAIN_SEP`].
+ pub fn bind_domain() -> Fr {
+@@ -139,6 +158,9 @@ pub struct CslSpendWitness {
+     pub gate_address: [Fr; 2],
+     /// Gate entry point hash (zero for `Empty`).
+     pub ep_hash: [Fr; 2],
++    /// Fresh per-spend randomness that blinds the policy binding. Private in
++    /// this proof and in the gate proof; never public. Ignored for `Empty`.
++    pub rho: Fr,
+     /// The legacy witness. Its `binding_input` is ignored: the binding is
+     /// recomputed by [`CslSpendWitness::binding`].
+     pub base: SpendWitness,
+@@ -153,6 +175,7 @@ impl CslSpendWitness {
+         inputs.extend(self.mint_address);
+         inputs.extend(self.gate_address);
+         inputs.extend(self.ep_hash);
++        inputs.push(self.rho);
+         inputs.extend(self.base.flatten());
+         debug_assert_eq!(inputs.len(), NUM_INPUTS);
+         inputs
+@@ -162,25 +185,33 @@ impl CslSpendWitness {
+         self.rule_kind == Fr::from(RULE_GATE_CONTRACT)
+     }
+ 
+-    /// The policy binding this witness commits to: `0` for `Empty`, otherwise
+-    /// `Poseidon(DOM, nullifier, sender, gate, ep_hash)`.
++    /// The hiding policy binding this witness commits to: `0` for `Empty`,
++    /// otherwise `Poseidon(DOM, nullifier, sender, token_type, rho)`. Off-circuit
++    /// mirror: `coin_structure::custom_spend::csl_policy_binding`.
+     pub fn binding(&self) -> Fr {
+         if !self.is_gated() {
+             return 0.into();
+         }
+         let [cn_hi, cn_lo] = self.base.nullifier();
+         let [snd_hi, snd_lo] = self.base.target();
+-        transient_hash(&[
+-            bind_domain(),
+-            cn_hi,
+-            cn_lo,
+-            snd_hi,
+-            snd_lo,
+-            self.gate_address[0],
+-            self.gate_address[1],
+-            self.ep_hash[0],
+-            self.ep_hash[1],
+-        ])
++        let [tt_hi, tt_lo] = self.base.token_type;
++        transient_hash(&[bind_domain(), cn_hi, cn_lo, snd_hi, snd_lo, tt_hi, tt_lo, self.rho])
++    }
++
++    /// The five route authenticators appended to the statement:
++    /// `[mode, gate_hi, gate_lo, ep_hi, ep_lo]` (all zero for `Empty`).
++    pub fn route_public_inputs(&self) -> [Fr; ROUTE_PUBLIC_INPUTS] {
++        if self.is_gated() {
++            [
++                Fr::from(RULE_GATE_CONTRACT),
++                self.gate_address[0],
++                self.gate_address[1],
++                self.ep_hash[0],
++                self.ep_hash[1],
++            ]
++        } else {
++            [0.into(); ROUTE_PUBLIC_INPUTS]
++        }
+     }
+ 
+     /// The token type this witness derives (off-circuit mirror of the constraint).
+@@ -194,11 +225,13 @@ impl CslSpendWitness {
+         )
+     }
+ 
+-    /// The 68 public inputs, identical to the legacy layout except that the
+-    /// first element is the policy binding.
++    /// The 73 public inputs: the legacy layout with the policy binding in the
++    /// first element, followed by the five route authenticators.
+     pub fn public_inputs(&self) -> Vec<Fr> {
+         let mut pis = self.base.public_inputs();
+         pis[0] = self.binding();
++        pis.extend(self.route_public_inputs());
++        debug_assert_eq!(pis.len(), CSL_NUM_PUBLIC_INPUTS);
+         pis
+     }
+ 
+@@ -259,6 +292,7 @@ impl CslSpendWitness {
+             mint_address: two_in(3),
+             gate_address: two_in(5),
+             ep_hash: two_in(7),
++            rho: inputs[9],
+             base,
+         })
+     }
+@@ -372,6 +406,7 @@ impl Relation for ZswapSpendCsl {
+         let mint_address = [&memory[3], &memory[4]];
+         let gate_address = [&memory[5], &memory[6]];
+         let ep_hash = [&memory[7], &memory[8]];
++        let rho = &memory[9];
+         // Legacy layout, offset by the prefix.
+         let o = CSL_PREFIX_INPUTS;
+         let is_user = &memory[o];
+@@ -537,7 +572,11 @@ impl Relation for ZswapSpendCsl {
+         let derivation_ok = cond_select(std, layouter, &type_ok, &one, &native_ok)?;
+         std.assert_non_zero(layouter, &derivation_ok)?;
+ 
+-        // CSL 2: the policy binding in the first public input.
++        // CSL 2: the hiding policy binding in the first public input:
++        // Poseidon(DOM_BIND, nullifier, sender, token_type, rho). The gate proof
++        // opens the same commitment with its initialized token-type cell, so the
++        // spent type is authenticated across both proofs; `rho` keeps the public
++        // value from being a recognition oracle for anyone who knows a key.
+         let dom_bind = fixed_fr(layouter, bind_domain())?;
+         let bound = std.poseidon(
+             layouter,
+@@ -547,10 +586,9 @@ impl Relation for ZswapSpendCsl {
+                 cn_lo.clone(),
+                 target_hi,
+                 target_lo,
+-                gate_address[0].clone(),
+-                gate_address[1].clone(),
+-                ep_hash[0].clone(),
+-                ep_hash[1].clone(),
++                token_type[0].clone(),
++                token_type[1].clone(),
++                rho.clone(),
+             ],
+         )?;
+         let binding = std.select(layouter, &rule_bit, &bound, &zero)?;
+@@ -642,7 +680,19 @@ impl Relation for ZswapSpendCsl {
+         pis.extend([op_push_s, one, two, neg_two.clone(), neg_two, vc_x, vc_y]); // pi[60..67]
+         pis.push(op_ins_1); // pi[67]
+ 
+-        debug_assert_eq!(pis.len(), NUM_PUBLIC_INPUTS);
++        // CSL 3: authenticated route. The mode, gate address and entry point the
++        // ledger routes on are public inputs constrained to the witnessed values
++        // the type derivation pins (all zero for `Empty`). The verifier fills them
++        // from the input's public `policy` fields, so those fields cannot be
++        // repointed at another contract or entry point, and a guarded coin cannot
++        // be presented as unguarded.
++        let route_gate_hi = std.select(layouter, &rule_bit, gate_address[0], &zero)?;
++        let route_gate_lo = std.select(layouter, &rule_bit, gate_address[1], &zero)?;
++        let route_ep_hi = std.select(layouter, &rule_bit, ep_hash[0], &zero)?;
++        let route_ep_lo = std.select(layouter, &rule_bit, ep_hash[1], &zero)?;
++        pis.extend([rule_kind.clone(), route_gate_hi, route_gate_lo, route_ep_hi, route_ep_lo]); // pi[68..73]
++
++        debug_assert_eq!(pis.len(), CSL_NUM_PUBLIC_INPUTS);
+         pis.iter()
+             .try_for_each(|pi| std.constrain_as_public_input(layouter, pi))
+     }
+diff --git a/zkir/src/zswap_spend_csl_v1_historical.rs b/zkir/src/zswap_spend_csl_v1_historical.rs
+new file mode 100644
+index 00000000..40c07a39
+--- /dev/null
++++ b/zkir/src/zswap_spend_csl_v1_historical.rs
+@@ -0,0 +1,769 @@
++// This file is part of midnight-ledger.
++// Copyright (C) Midnight Foundation
++// SPDX-License-Identifier: Apache-2.0
++// Licensed under the Apache License, Version 2.0 (the "License");
++// You may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++// http://www.apache.org/licenses/LICENSE-2.0
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++//! HISTORICAL. The first CSL spend relation of the regulated ZSwap experiment,
++//! frozen exactly as it was at the reviewed implementation (ledger commit
++//! `8285f69df4810bb3ab256d68fecad28a62f628e3`), with its items renamed `*V1`.
++//!
++//! It is NOT dispatched by any proving hook, NOT embedded as a verifier key,
++//! and NOT reachable from any production path. It exists so the test suite can
++//! produce proofs with the superseded layout (68 public inputs; binding
++//! `Poseidon("midnight:csl-bind[v1]", nullifier, sender, gate, ep_hash)`; no
++//! route authenticators) and show that the ledger's embedded verifier rejects
++//! them. Its known defects, fixed in [`crate::zswap_spend_csl`], are:
++//!
++//! - the gate address and entry point were only inside an opaque hash, so the
++//!   public routing fields the ledger matched on were not authenticated by the
++//!   proof (an arbitrary claiming contract could redirect authorization);
++//! - the binding was not hiding: anyone who knew a candidate sender key could
++//!   recompute it from public data and recognise that sender's spends;
++//! - the spent token type was not bound into the authorization.
++//!
++//! Do not add a dispatch arm, a key-location constant or an embedded key for
++//! this relation.
++
++use group::Group;
++use midnight_circuits_v1::instructions::{
++    AssignmentInstructions, ControlFlowInstructions, ConversionInstructions,
++    DecompositionInstructions, EccInstructions, EqualityInstructions, PublicInputInstructions,
++    ZeroInstructions,
++};
++use midnight_circuits_v1::types::{AssignedBit, AssignedNative};
++use midnight_proofs_v1::{
++    circuit::{Layouter, Value},
++    plonk::Error,
++};
++use midnight_zk_stdlib_v1::{MidnightPK, MidnightVK, Relation, ZkStdLib, ZkStdLibArch};
++use rand::{CryptoRng, Rng};
++use std::sync::{Arc, OnceLock};
++use transient_crypto::curve::Fr;
++use transient_crypto::hash::transient_hash;
++use transient_crypto::proofs::{Proof, ProofPreimage};
++
++use crate::ir_v1::{
++    OldEmbeddedAffine, OldEmbeddedAffineExt, OldScalar, V1Params, cvt, v1_assemble_bytes,
++    v1_ecc_from_parts, v1_fab_decode_to_bytes,
++};
++use crate::zswap_spend::{
++    CC_DOMAIN_SEP, CN_DOMAIN_SEP, NUM_INPUTS as LEGACY_NUM_INPUTS, NUM_PUBLIC_INPUTS,
++    PK_DOMAIN_SEP, SpendWitness, ZSWAP_TREE_HEIGHT, join_bytes32, split_bytes32,
++};
++use base_crypto::fab::{Alignment, AlignmentAtom, AlignmentSegment};
++
++/// Number of CSL witness elements prepended to the legacy spend witness.
++pub const CSL_PREFIX_INPUTS_V1: usize = 9;
++/// Total witness length of the CSL spend circuit.
++pub const NUM_INPUTS_V1: usize = CSL_PREFIX_INPUTS_V1 + LEGACY_NUM_INPUTS;
++
++/// Key location under which the ledger requests zswap spend proofs.
++pub const SPEND_KEY_LOCATION: &str = "midnight/zswap/spend";
++
++/// `SpendRule::Empty`: no gate.
++pub const RULE_EMPTY: u64 = 0;
++/// `SpendRule::GateContract(address, ep_hash)`: a bound gate call is required.
++pub const RULE_GATE_CONTRACT: u64 = 1;
++
++/// Tag framing of `SpendRule`'s tagged serialization (`serialize::GLOBAL_TAG` + tag + `:`).
++pub const DESCRIPTOR_TAG_PREFIX: &[u8; 24] = b"midnight:spend-rule[v1]:";
++/// Serialized discriminant of `SpendRule::GateContract`.
++pub const GATE_CONTRACT_DISCRIMINANT: u8 = 2;
++/// The inner domain separator of token-type derivation, zero-padded to 32 bytes
++/// (see `coin_structure::contract::ContractAddress::custom_token_type`).
++pub const DERIVE_TOKEN_SEP: [u8; 32] = *b"midnight:derive_token\0\0\0\0\0\0\0\0\0\0\0";
++/// Poseidon domain for the policy binding.
++pub const BIND_DOMAIN_SEP_V1: &[u8; 21] = b"midnight:csl-bind[v1]";
++
++/// Field constant for [`BIND_DOMAIN_SEP_V1`].
++pub fn bind_domain_v1() -> Fr {
++    Fr::from_le_bytes(BIND_DOMAIN_SEP_V1).expect("21 bytes fit in Fr")
++}
++
++/// The tagged serialization of `SpendRule::GateContract(gate, ep_hash)`, byte for byte.
++pub fn gate_contract_descriptor_bytes(gate: &[u8; 32], ep_hash: &[u8; 32]) -> Vec<u8> {
++    let mut bytes = Vec::with_capacity(24 + 1 + 32 + 32);
++    bytes.extend_from_slice(DESCRIPTOR_TAG_PREFIX);
++    bytes.push(GATE_CONTRACT_DISCRIMINANT);
++    bytes.extend_from_slice(gate);
++    bytes.extend_from_slice(ep_hash);
++    bytes
++}
++
++/// The ledger's token type derivation for the two rule kinds this circuit supports.
++pub fn derive_token_type(
++    rule_kind: u64,
++    domain_sep: &[u8; 32],
++    mint_address: &[u8; 32],
++    gate: &[u8; 32],
++    ep_hash: &[u8; 32],
++) -> [u8; 32] {
++    let mut pre = Vec::with_capacity(128);
++    pre.extend_from_slice(&DERIVE_TOKEN_SEP);
++    pre.extend_from_slice(domain_sep);
++    pre.extend_from_slice(mint_address);
++    if rule_kind == RULE_GATE_CONTRACT {
++        let descriptor = base_crypto::hash::persistent_hash(&gate_contract_descriptor_bytes(gate, ep_hash));
++        pre.extend_from_slice(&descriptor.0);
++    }
++    base_crypto::hash::persistent_hash(&pre).0
++}
++
++/// Witness of the CSL spend circuit: the CSL prefix plus the legacy spend witness.
++#[derive(Clone, Debug)]
++pub struct CslSpendWitnessV1 {
++    /// [`RULE_EMPTY`] or [`RULE_GATE_CONTRACT`], as a field element.
++    pub rule_kind: Fr,
++    /// Domain separator chosen by the minting contract.
++    pub domain_sep: [Fr; 2],
++    /// Address of the minting contract.
++    pub mint_address: [Fr; 2],
++    /// Gate contract address (zero for `Empty`).
++    pub gate_address: [Fr; 2],
++    /// Gate entry point hash (zero for `Empty`).
++    pub ep_hash: [Fr; 2],
++    /// The legacy witness. Its `binding_input` is ignored: the binding is
++    /// recomputed by [`CslSpendWitnessV1::binding`].
++    pub base: SpendWitness,
++}
++
++impl CslSpendWitnessV1 {
++    /// Flattened witness, CSL prefix first, then the legacy layout.
++    pub fn flatten(&self) -> Vec<Fr> {
++        let mut inputs = Vec::with_capacity(NUM_INPUTS_V1);
++        inputs.push(self.rule_kind);
++        inputs.extend(self.domain_sep);
++        inputs.extend(self.mint_address);
++        inputs.extend(self.gate_address);
++        inputs.extend(self.ep_hash);
++        inputs.extend(self.base.flatten());
++        debug_assert_eq!(inputs.len(), NUM_INPUTS_V1);
++        inputs
++    }
++
++    fn is_gated(&self) -> bool {
++        self.rule_kind == Fr::from(RULE_GATE_CONTRACT)
++    }
++
++    /// The policy binding this witness commits to: `0` for `Empty`, otherwise
++    /// `Poseidon(DOM, nullifier, sender, gate, ep_hash)`.
++    pub fn binding(&self) -> Fr {
++        if !self.is_gated() {
++            return 0.into();
++        }
++        let [cn_hi, cn_lo] = self.base.nullifier();
++        let [snd_hi, snd_lo] = self.base.target();
++        transient_hash(&[
++            bind_domain_v1(),
++            cn_hi,
++            cn_lo,
++            snd_hi,
++            snd_lo,
++            self.gate_address[0],
++            self.gate_address[1],
++            self.ep_hash[0],
++            self.ep_hash[1],
++        ])
++    }
++
++    /// The token type this witness derives (off-circuit mirror of the constraint).
++    pub fn derived_token_type(&self) -> [u8; 32] {
++        derive_token_type(
++            if self.is_gated() { RULE_GATE_CONTRACT } else { RULE_EMPTY },
++            &join_bytes32(&self.domain_sep),
++            &join_bytes32(&self.mint_address),
++            &join_bytes32(&self.gate_address),
++            &join_bytes32(&self.ep_hash),
++        )
++    }
++
++    /// The 68 public inputs, identical to the legacy layout except that the
++    /// first element is the policy binding.
++    pub fn public_inputs(&self) -> Vec<Fr> {
++        let mut pis = self.base.public_inputs();
++        pis[0] = self.binding();
++        pis
++    }
++
++    /// Reconstructs the witness from a spend proof preimage produced by
++    /// `zswap::construct` with CSL inputs prepended.
++    pub fn from_preimage(preimage: &ProofPreimage) -> Result<Self, anyhow::Error> {
++        let inputs = &preimage.inputs;
++        if inputs.len() != NUM_INPUTS_V1 {
++            anyhow::bail!(
++                "CSL spend preimage has {} inputs, expected {}",
++                inputs.len(),
++                NUM_INPUTS_V1
++            );
++        }
++        if preimage.public_transcript_outputs.len() != 2 {
++            anyhow::bail!("CSL spend preimage must carry [check_root_result, segment] outputs");
++        }
++        let legacy = &inputs[CSL_PREFIX_INPUTS_V1..];
++        let two = |i: usize| [legacy[i], legacy[i + 1]];
++        let mut path = [(Fr::from(0), false); ZSWAP_TREE_HEIGHT];
++        for (i, slot) in path.iter_mut().enumerate() {
++            let goes_left = legacy[8 + 2 * i];
++            let goes_left = if goes_left == Fr::from(1) {
++                true
++            } else if goes_left == Fr::from(0) {
++                false
++            } else {
++                anyhow::bail!("path direction bit is not boolean");
++            };
++            *slot = (legacy[7 + 2 * i], goes_left);
++        }
++        let is_user = legacy[0];
++        let is_user = if is_user == Fr::from(1) {
++            true
++        } else if is_user == Fr::from(0) {
++            false
++        } else {
++            anyhow::bail!("is_user is not boolean");
++        };
++        let base = SpendWitness {
++            is_user,
++            sk: two(1),
++            contract_address: two(3),
++            commitment: two(5),
++            path,
++            nonce: two(71),
++            token_type: two(73),
++            value: legacy[75],
++            rc: legacy[76],
++            binding_input: preimage.binding_input,
++            check_root_result: preimage.public_transcript_outputs[0],
++            segment: preimage.public_transcript_outputs[1],
++        };
++        let two_in = |i: usize| [inputs[i], inputs[i + 1]];
++        Ok(CslSpendWitnessV1 {
++            rule_kind: inputs[0],
++            domain_sep: two_in(1),
++            mint_address: two_in(3),
++            gate_address: two_in(5),
++            ep_hash: two_in(7),
++            base,
++        })
++    }
++}
++
++/// The CSL spend relation.
++#[derive(Clone, Debug, Default)]
++pub struct ZswapSpendCslV1;
++
++type Assigned = AssignedNative<OldScalar>;
++
++/// `if bit != 0 { a } else { b }`
++fn cond_select(
++    std: &ZkStdLib,
++    layouter: &mut impl Layouter<OldScalar>,
++    bit: &Assigned,
++    a: &Assigned,
++    b: &Assigned,
++) -> Result<Assigned, Error> {
++    let bit_is_zero = std.is_zero(layouter, bit)?;
++    std.select(layouter, &bit_is_zero, b, a)
++}
++
++/// SHA-256 over the decoded bytes of `inputs` under `alignment`, as `(hi, lo)`.
++fn persistent_hash(
++    std: &ZkStdLib,
++    layouter: &mut impl Layouter<OldScalar>,
++    alignment: &Alignment,
++    inputs: &[Assigned],
++) -> Result<(Assigned, Assigned), Error> {
++    let bytes = v1_fab_decode_to_bytes(std, layouter, alignment, inputs)?;
++    let res_bytes = std.sha2_256(layouter, &bytes)?;
++    let hi = std.convert(layouter, &res_bytes[31])?;
++    let lo = v1_assemble_bytes(std, layouter, &res_bytes[..31])?;
++    Ok((hi, lo))
++}
++
++fn bytes_alignment(lengths: &[u32]) -> Alignment {
++    Alignment(
++        lengths
++            .iter()
++            .map(|length| AlignmentSegment::Atom(AlignmentAtom::Bytes { length: *length }))
++            .collect(),
++    )
++}
++
++/// Range-checks a `(hi, lo)` pair as the split of a 32-byte value.
++fn check_bytes32(
++    std: &ZkStdLib,
++    layouter: &mut impl Layouter<OldScalar>,
++    hi: &Assigned,
++    lo: &Assigned,
++) -> Result<(), Error> {
++    drop(std.assigned_to_le_bits(layouter, hi, Some(8), false)?);
++    drop(std.assigned_to_le_bits(layouter, lo, Some(248), false)?);
++    Ok(())
++}
++
++/// `1` if `a == b` for the 32-byte pair, else `0`.
++fn eq_bytes32(
++    std: &ZkStdLib,
++    layouter: &mut impl Layouter<OldScalar>,
++    a: (&Assigned, &Assigned),
++    b: (&Assigned, &Assigned),
++    zero: &Assigned,
++) -> Result<Assigned, Error> {
++    let eq_hi = {
++        let bit = std.is_equal(layouter, a.0, b.0)?;
++        std.convert(layouter, &bit)?
++    };
++    let eq_lo = {
++        let bit = std.is_equal(layouter, a.1, b.1)?;
++        std.convert(layouter, &bit)?
++    };
++    cond_select(std, layouter, &eq_hi, &eq_lo, zero)
++}
++
++impl Relation for ZswapSpendCslV1 {
++    type Instance = Vec<OldScalar>;
++    type Witness = CslSpendWitnessV1;
++
++    fn format_instance(instance: &Self::Instance) -> Result<Vec<OldScalar>, Error> {
++        Ok(instance.clone())
++    }
++
++    fn circuit(
++        &self,
++        std: &ZkStdLib,
++        layouter: &mut impl Layouter<OldScalar>,
++        _instance: Value<Self::Instance>,
++        witness: Value<Self::Witness>,
++    ) -> Result<(), Error> {
++        let fixed = |layouter: &mut _, v: u64| -> Result<Assigned, Error> {
++            std.assign_fixed(layouter, OldScalar::from(v))
++        };
++        let fixed_fr = |layouter: &mut _, v: Fr| -> Result<Assigned, Error> {
++            std.assign_fixed(layouter, cvt(v.0))
++        };
++
++        let input_values = witness.as_ref().map(|w| {
++            w.flatten()
++                .into_iter()
++                .map(|f| cvt(f.0))
++                .collect::<Vec<_>>()
++        });
++        let memory = std.assign_many(layouter, &input_values.transpose_vec(NUM_INPUTS_V1))?;
++
++        // CSL prefix.
++        let rule_kind = &memory[0];
++        let domain_sep = [&memory[1], &memory[2]];
++        let mint_address = [&memory[3], &memory[4]];
++        let gate_address = [&memory[5], &memory[6]];
++        let ep_hash = [&memory[7], &memory[8]];
++        // Legacy layout, offset by the prefix.
++        let o = CSL_PREFIX_INPUTS_V1;
++        let is_user = &memory[o];
++        let sk = [&memory[o + 1], &memory[o + 2]];
++        let contract_address = [&memory[o + 3], &memory[o + 4]];
++        let commitment = [&memory[o + 5], &memory[o + 6]];
++        let path = (0..ZSWAP_TREE_HEIGHT)
++            .map(|i| (&memory[o + 7 + 2 * i], &memory[o + 8 + 2 * i]))
++            .collect::<Vec<_>>();
++        let nonce = [&memory[o + 71], &memory[o + 72]];
++        let token_type = [&memory[o + 73], &memory[o + 74]];
++        let value = &memory[o + 75];
++        let rc = &memory[o + 76];
++
++        // Well-formedness of the witness.
++        let rule_bit: AssignedBit<_> = std.convert(layouter, rule_kind)?;
++        for [hi, lo] in [domain_sep, mint_address, gate_address, ep_hash] {
++            check_bytes32(std, layouter, hi, lo)?;
++        }
++        let _: AssignedBit<_> = std.convert(layouter, is_user)?;
++        for [hi, lo] in [sk, contract_address, commitment] {
++            check_bytes32(std, layouter, hi, lo)?;
++        }
++        for (_, goes_left) in &path {
++            let _: AssignedBit<_> = std.convert(layouter, *goes_left)?;
++        }
++        for [hi, lo] in [nonce, token_type] {
++            check_bytes32(std, layouter, hi, lo)?;
++        }
++        drop(std.assigned_to_le_bits(layouter, value, Some(128), false)?);
++
++        let one = fixed(layouter, 1)?;
++        let zero = fixed(layouter, 0)?;
++        let two = fixed(layouter, 2)?;
++
++        // Merkle membership of the commitment.
++        let mut node = commitment[1].clone();
++        for (sibling, goes_left) in &path {
++            let left = cond_select(std, layouter, goes_left, &node, sibling)?;
++            let right = cond_select(std, layouter, goes_left, sibling, &node)?;
++            node = std.poseidon(layouter, &[left, right])?;
++        }
++        let root = node;
++
++        // Ownership: public key from the secret key, or the contract address.
++        let ds_pk = fixed_fr(layouter, Fr::from_le_bytes(PK_DOMAIN_SEP).expect("21 bytes fit in Fr"))?;
++        let (pk_hi, pk_lo) = persistent_hash(
++            std,
++            layouter,
++            &bytes_alignment(&[21, 32]),
++            &[ds_pk, sk[0].clone(), sk[1].clone()],
++        )?;
++        let is_contract = cond_select(std, layouter, is_user, &zero, &one)?;
++        let target_hi = cond_select(std, layouter, is_user, &pk_hi, contract_address[0])?;
++        let target_lo = cond_select(std, layouter, is_user, &pk_lo, contract_address[1])?;
++
++        // Commitment opening.
++        let ds_cc = fixed_fr(layouter, Fr::from_le_bytes(CC_DOMAIN_SEP).expect("21 bytes fit in Fr"))?;
++        let coin_alignment = bytes_alignment(&[21, 32, 32, 16, 1, 32]);
++        let (cc_hi, cc_lo) = persistent_hash(
++            std,
++            layouter,
++            &coin_alignment,
++            &[
++                ds_cc,
++                nonce[0].clone(),
++                nonce[1].clone(),
++                token_type[0].clone(),
++                token_type[1].clone(),
++                value.clone(),
++                is_user.clone(),
++                target_hi.clone(),
++                target_lo.clone(),
++            ],
++        )?;
++        let cc_ok = eq_bytes32(std, layouter, (&cc_hi, &cc_lo), (commitment[0], commitment[1]), &zero)?;
++        std.assert_non_zero(layouter, &cc_ok)?;
++
++        // Nullifier.
++        let sender_hi = cond_select(std, layouter, is_user, sk[0], contract_address[0])?;
++        let sender_lo = cond_select(std, layouter, is_user, sk[1], contract_address[1])?;
++        let ds_cn = fixed_fr(layouter, Fr::from_le_bytes(CN_DOMAIN_SEP).expect("21 bytes fit in Fr"))?;
++        let (cn_hi, cn_lo) = persistent_hash(
++            std,
++            layouter,
++            &coin_alignment,
++            &[
++                ds_cn,
++                nonce[0].clone(),
++                nonce[1].clone(),
++                token_type[0].clone(),
++                token_type[1].clone(),
++                value.clone(),
++                is_user.clone(),
++                sender_hi,
++                sender_lo,
++            ],
++        )?;
++
++        // CSL 1: type re-derivation.
++        let prefix = fixed_fr(
++            layouter,
++            Fr::from_le_bytes(DESCRIPTOR_TAG_PREFIX).expect("24 bytes fit in Fr"),
++        )?;
++        let discriminant = fixed(layouter, GATE_CONTRACT_DISCRIMINANT as u64)?;
++        let (dh_hi, dh_lo) = persistent_hash(
++            std,
++            layouter,
++            &bytes_alignment(&[24, 1, 32, 32]),
++            &[
++                prefix,
++                discriminant,
++                gate_address[0].clone(),
++                gate_address[1].clone(),
++                ep_hash[0].clone(),
++                ep_hash[1].clone(),
++            ],
++        )?;
++        let [sep_hi_v, sep_lo_v] = split_bytes32(&DERIVE_TOKEN_SEP);
++        let sep_hi = fixed_fr(layouter, sep_hi_v)?;
++        let sep_lo = fixed_fr(layouter, sep_lo_v)?;
++        let (te_hi, te_lo) = persistent_hash(
++            std,
++            layouter,
++            &bytes_alignment(&[32, 32, 32]),
++            &[
++                sep_hi.clone(),
++                sep_lo.clone(),
++                domain_sep[0].clone(),
++                domain_sep[1].clone(),
++                mint_address[0].clone(),
++                mint_address[1].clone(),
++            ],
++        )?;
++        let (tg_hi, tg_lo) = persistent_hash(
++            std,
++            layouter,
++            &bytes_alignment(&[32, 32, 32, 32]),
++            &[
++                sep_hi,
++                sep_lo,
++                domain_sep[0].clone(),
++                domain_sep[1].clone(),
++                mint_address[0].clone(),
++                mint_address[1].clone(),
++                dh_hi,
++                dh_lo,
++            ],
++        )?;
++        let expected_hi = std.select(layouter, &rule_bit, &tg_hi, &te_hi)?;
++        let expected_lo = std.select(layouter, &rule_bit, &tg_lo, &te_lo)?;
++        let type_ok = eq_bytes32(
++            std,
++            layouter,
++            (&expected_hi, &expected_lo),
++            (token_type[0], token_type[1]),
++            &zero,
++        )?;
++        // The native token type is all zeroes and has no derivation preimage; it
++        // is accepted under `Empty` only.
++        let is_native = eq_bytes32(std, layouter, (token_type[0], token_type[1]), (&zero, &zero), &zero)?;
++        let native_ok = std.select(layouter, &rule_bit, &zero, &is_native)?;
++        let derivation_ok = cond_select(std, layouter, &type_ok, &one, &native_ok)?;
++        std.assert_non_zero(layouter, &derivation_ok)?;
++
++        // CSL 2: the policy binding in the first public input.
++        let dom_bind = fixed_fr(layouter, bind_domain_v1())?;
++        let bound = std.poseidon(
++            layouter,
++            &[
++                dom_bind,
++                cn_hi.clone(),
++                cn_lo.clone(),
++                target_hi,
++                target_lo,
++                gate_address[0].clone(),
++                gate_address[1].clone(),
++                ep_hash[0].clone(),
++                ep_hash[1].clone(),
++            ],
++        )?;
++        let binding = std.select(layouter, &rule_bit, &bound, &zero)?;
++        let mut pis = vec![binding]; // pi[0]
++
++        // Public transcript: identical to the legacy relation from here on.
++        let op_dup_0 = fixed(layouter, crate::zswap_spend::OP_DUP_0)?;
++        pis.push(op_dup_0.clone()); // pi[1]
++        let op_idx_1 = fixed(layouter, crate::zswap_spend::OP_IDX_1)?;
++        pis.extend([op_idx_1.clone(), one.clone(), one.clone(), zero.clone()]); // pi[2..6]
++        pis.extend([op_idx_1.clone(), one.clone(), one.clone(), two.clone()]); // pi[6..10]
++        let op_push = fixed(layouter, crate::zswap_spend::OP_PUSH)?;
++        let neg_two: Assigned = std.assign_fixed(layouter, -OldScalar::from(2))?;
++        pis.extend([op_push.clone(), one.clone(), one.clone(), neg_two.clone(), root]); // pi[10..15]
++        let op_member = fixed(layouter, crate::zswap_spend::OP_MEMBER)?;
++        pis.push(op_member); // pi[15]
++        let check_root_result = std.assign(
++            layouter,
++            witness.as_ref().map(|w| cvt(w.base.check_root_result.0)),
++        )?;
++        let op_popeq_c = fixed(layouter, crate::zswap_spend::OP_POPEQ_C)?;
++        pis.extend([op_popeq_c, one.clone(), one.clone(), check_root_result]); // pi[16..20]
++
++        let op_idx_pp_1 = fixed(layouter, crate::zswap_spend::OP_IDX_PP_1)?;
++        pis.extend([op_idx_pp_1, one.clone(), one.clone(), one.clone()]); // pi[20..24]
++        let bytes32_len = fixed(layouter, 0x20)?;
++        pis.extend([op_push.clone(), one.clone(), one.clone(), bytes32_len.clone(), cn_hi, cn_lo]); // pi[24..30]
++        let op_push_s = fixed(layouter, crate::zswap_spend::OP_PUSH_S)?;
++        pis.extend([op_push_s.clone(), zero.clone()]); // pi[30..32]
++        let op_ins_1 = fixed(layouter, crate::zswap_spend::OP_INS_1)?;
++        pis.push(op_ins_1.clone()); // pi[32]
++        let op_ins_c_1 = fixed(layouter, crate::zswap_spend::OP_INS_C_1)?;
++        pis.push(op_ins_c_1); // pi[33]
++
++        let three = fixed(layouter, 3)?;
++        let select_contract =
++            |std: &ZkStdLib, layouter: &mut _, var: &Assigned| -> Result<Assigned, Error> {
++                cond_select(std, layouter, &is_contract, var, &zero)
++            };
++        let g_push = select_contract(std, layouter, &op_push)?;
++        pis.extend([g_push, is_contract.clone(), is_contract.clone(), is_contract.clone()]); // pi[34..38]
++        let g_three = select_contract(std, layouter, &three)?;
++        pis.push(g_three); // pi[38]
++        let g_push_s = select_contract(std, layouter, &op_push_s)?;
++        pis.extend([g_push_s, is_contract.clone(), is_contract.clone()]); // pi[39..42]
++        let g_bytes32_len = select_contract(std, layouter, &bytes32_len)?;
++        pis.push(g_bytes32_len); // pi[42]
++        let g_addr_hi = select_contract(std, layouter, contract_address[0])?;
++        pis.push(g_addr_hi); // pi[43]
++        let g_addr_lo = select_contract(std, layouter, contract_address[1])?;
++        pis.push(g_addr_lo); // pi[44]
++        let g_ins = select_contract(std, layouter, &op_ins_1)?;
++        pis.push(g_ins); // pi[45]
++
++        pis.push(op_dup_0); // pi[46]
++        let five = fixed(layouter, 5)?;
++        pis.extend([op_idx_1, one.clone(), one.clone(), five]); // pi[47..51]
++        let segment: Assigned =
++            std.assign(layouter, witness.as_ref().map(|w| cvt(w.base.segment.0)))?;
++        let op_popeq = fixed(layouter, crate::zswap_spend::OP_POPEQ)?;
++        pis.extend([op_popeq, one.clone(), two.clone(), segment.clone()]); // pi[51..55]
++
++        // Value commitment.
++        let base_point = std.hash_to_curve(
++            layouter,
++            &[token_type[0].clone(), token_type[1].clone(), segment],
++        )?;
++        let base_x = std.jubjub().x_coordinate(&base_point);
++        let base_y = std.jubjub().y_coordinate(&base_point);
++        let generator: midnight_circuits_v1::types::AssignedNativePoint<OldEmbeddedAffineExt> = std
++            .jubjub()
++            .assign_fixed(layouter, OldEmbeddedAffine::generator())?;
++        let rc_scalar = std.jubjub().convert(layouter, rc)?;
++        let blind = std.jubjub().msm(layouter, &[rc_scalar], &[generator])?;
++        let blind_x = std.jubjub().x_coordinate(&blind);
++        let blind_y = std.jubjub().y_coordinate(&blind);
++        let base = v1_ecc_from_parts(std, layouter, &base_x, &base_y)?;
++        let value_scalar = std.jubjub().convert(layouter, value)?;
++        let committed = std.jubjub().msm(layouter, &[value_scalar], &[base])?;
++        let committed_x = std.jubjub().x_coordinate(&committed);
++        let committed_y = std.jubjub().y_coordinate(&committed);
++        let blind_pt = v1_ecc_from_parts(std, layouter, &blind_x, &blind_y)?;
++        let committed_pt = v1_ecc_from_parts(std, layouter, &committed_x, &committed_y)?;
++        let vc = std.jubjub().add(layouter, &blind_pt, &committed_pt)?;
++        let vc_x = std.jubjub().x_coordinate(&vc);
++        let vc_y = std.jubjub().y_coordinate(&vc);
++
++        pis.extend([op_push, one.clone(), one.clone(), one.clone(), two.clone()]); // pi[55..60]
++        pis.extend([op_push_s, one, two, neg_two.clone(), neg_two, vc_x, vc_y]); // pi[60..67]
++        pis.push(op_ins_1); // pi[67]
++
++        debug_assert_eq!(pis.len(), NUM_PUBLIC_INPUTS);
++        pis.iter()
++            .try_for_each(|pi| std.constrain_as_public_input(layouter, pi))
++    }
++
++    fn used_chips(&self) -> ZkStdLibArch {
++        ZkStdLibArch {
++            jubjub: true,
++            poseidon: true,
++            sha2_256: true,
++            sha2_512: false,
++            sha3_256: false,
++            keccak_256: false,
++            blake2b: false,
++            nr_pow2range_cols: 1,
++            secp256k1: false,
++            bls12_381: false,
++            base64: false,
++            automaton: false,
++        }
++    }
++
++    fn write_relation<W: std::io::Write>(&self, _writer: &mut W) -> std::io::Result<()> {
++        Ok(())
++    }
++
++    fn read_relation<R: std::io::Read>(_reader: &mut R) -> std::io::Result<Self> {
++        Ok(ZswapSpendCslV1)
++    }
++}
++
++/// Proving and verifying keys of the CSL spend relation, generated once per process.
++pub struct CslSpendKeysV1 {
++    /// The parameter size the circuit needs.
++    pub k: u8,
++    pub vk: MidnightVK,
++    pub pk: MidnightPK<ZswapSpendCslV1>,
++}
++
++static CSL_SPEND_KEYS_V1: OnceLock<Arc<CslSpendKeysV1>> = OnceLock::new();
++
++/// The circuit size of the CSL spend relation.
++pub fn csl_spend_k_v1() -> u8 {
++    midnight_zk_stdlib_v1::MidnightCircuit::from_relation(&ZswapSpendCslV1).min_k() as u8
++}
++
++/// Generates (or returns the cached) CSL spend keys from the given parameters provider.
++pub async fn csl_spend_keys_v1(
++    params: &impl transient_crypto::proofs::ParamsProverProvider,
++) -> Result<Arc<CslSpendKeysV1>, anyhow::Error> {
++    if let Some(keys) = CSL_SPEND_KEYS_V1.get() {
++        return Ok(keys.clone());
++    }
++    let k = csl_spend_k_v1();
++    let params_k = transient_crypto_old::proofs::ParamsProverProvider::get_params(&V1Params(params), k).await?;
++    let vk = midnight_zk_stdlib_v1::setup_vk(params_k.as_ref(), &ZswapSpendCslV1);
++    let pk = midnight_zk_stdlib_v1::setup_pk(&ZswapSpendCslV1, &vk);
++    Ok(CSL_SPEND_KEYS_V1
++        .get_or_init(|| Arc::new(CslSpendKeysV1 { k, vk, pk }))
++        .clone())
++}
++
++/// The CSL spend verifier key in the ledger's embedded format (`transient_crypto_old` tagged bytes).
++pub async fn csl_spend_verifier_key_bytes_v1(
++    params: &impl transient_crypto::proofs::ParamsProverProvider,
++) -> Result<Vec<u8>, anyhow::Error> {
++    let keys = csl_spend_keys_v1(params).await?;
++    let vk = transient_crypto_old::proofs::VerifierKey::from(keys.vk.clone());
++    let mut bytes = Vec::new();
++    serialize::tagged_serialize(&vk, &mut bytes)?;
++    Ok(bytes)
++}
++
++/// Proves a zswap spend preimage with the CSL relation.
++pub async fn prove_from_preimage_v1(
++    rng: impl Rng + CryptoRng,
++    params: &impl transient_crypto::proofs::ParamsProverProvider,
++    preimage: &ProofPreimage,
++) -> Result<Proof, anyhow::Error> {
++    let witness = CslSpendWitnessV1::from_preimage(preimage)?;
++    let pis: Vec<OldScalar> = witness.public_inputs().iter().map(|f| cvt(f.0)).collect();
++    let keys = csl_spend_keys_v1(params).await?;
++    let params_k = transient_crypto_old::proofs::ParamsProverProvider::get_params(&V1Params(params), keys.k).await?;
++    let bytes = midnight_zk_stdlib_v1::prove::<_, transient_crypto_old::proofs::TranscriptHash>(
++        params_k.as_ref(),
++        &keys.pk,
++        &ZswapSpendCslV1,
++        &pis,
++        witness,
++        rng,
++    )
++    .map_err(|e| anyhow::anyhow!("CSL spend prove: {e}"))?;
++    Ok(Proof::from_bytes(bytes))
++}
++
++
++/// Builds a v1 witness from a current (v2) spend preimage by dropping the
++/// blinding `rho` (the tenth prefix element), which the v1 layout did not have.
++pub fn witness_v1_from_v2_preimage(preimage: &ProofPreimage) -> Result<CslSpendWitnessV1, anyhow::Error> {
++    if preimage.inputs.len() != NUM_INPUTS_V1 + 1 {
++        anyhow::bail!(
++            "expected a v2 preimage with {} inputs, got {}",
++            NUM_INPUTS_V1 + 1,
++            preimage.inputs.len()
++        );
++    }
++    let mut v1 = preimage.clone();
++    v1.inputs.remove(9);
++    CslSpendWitnessV1::from_preimage(&v1)
++}
++
++/// Proves a current (v2) spend preimage with the historical v1 relation and
++/// returns the proof together with the v1 statement it was made for.
++pub async fn prove_v1_from_v2_preimage(
++    rng: impl Rng + CryptoRng,
++    params: &impl transient_crypto::proofs::ParamsProverProvider,
++    preimage: &ProofPreimage,
++) -> Result<(Proof, Vec<Fr>), anyhow::Error> {
++    let witness = witness_v1_from_v2_preimage(preimage)?;
++    let pis_fr = witness.public_inputs();
++    let pis: Vec<OldScalar> = pis_fr.iter().map(|f| cvt(f.0)).collect();
++    let keys = csl_spend_keys_v1(params).await?;
++    let params_k = transient_crypto_old::proofs::ParamsProverProvider::get_params(&V1Params(params), keys.k).await?;
++    let bytes = midnight_zk_stdlib_v1::prove::<_, transient_crypto_old::proofs::TranscriptHash>(
++        params_k.as_ref(),
++        &keys.pk,
++        &ZswapSpendCslV1,
++        &pis,
++        witness,
++        rng,
++    )
++    .map_err(|e| anyhow::anyhow!("historical v1 CSL spend prove: {e}"))?;
++    Ok((Proof::from_bytes(bytes), pis_fr))
++}
+diff --git a/zkir/tests/zswap_spend_csl.rs b/zkir/tests/zswap_spend_csl.rs
+index 6db872ad..4581d305 100644
+--- a/zkir/tests/zswap_spend_csl.rs
++++ b/zkir/tests/zswap_spend_csl.rs
+@@ -24,9 +24,10 @@
+ use base_crypto::hash::HashOutput;
+ use coin_structure::contract::ContractAddress;
+ use coin_structure::custom_spend::SpendRule;
+-use midnight_zkir::zswap_spend::{NUM_PUBLIC_INPUTS, SpendWitness, ZSWAP_TREE_HEIGHT, split_bytes32};
++use midnight_zkir::zswap_spend::{SpendWitness, ZSWAP_TREE_HEIGHT, split_bytes32};
+ use midnight_zkir::zswap_spend_csl::{
+-    CslSpendWitness, RULE_EMPTY, RULE_GATE_CONTRACT, ZswapSpendCsl, derive_token_type,
++    CSL_NUM_PUBLIC_INPUTS, CslSpendWitness, RULE_EMPTY, RULE_GATE_CONTRACT, ZswapSpendCsl,
++    derive_token_type,
+ };
+ use rand::{Rng, SeedableRng};
+ use rand_chacha::ChaCha20Rng;
+@@ -111,6 +112,7 @@ impl Fixture {
+             mint_address: split_bytes32(&self.mint),
+             gate_address: split_bytes32(&gate),
+             ep_hash: split_bytes32(&ep),
++            rho: if rule_kind == RULE_GATE_CONTRACT { Fr::from(0xC0FFEE) } else { 0.into() },
+             base,
+         }
+     }
+@@ -149,7 +151,7 @@ fn keys() -> Keys {
+ 
+ fn prove(keys: &Keys, rng: &mut ChaCha20Rng, witness: &CslSpendWitness) -> Result<(Vec<u8>, Vec<Fr>), String> {
+     let pis = witness.public_inputs();
+-    assert_eq!(pis.len(), NUM_PUBLIC_INPUTS);
++    assert_eq!(pis.len(), CSL_NUM_PUBLIC_INPUTS);
+     let pis_old: Vec<_> = pis.iter().map(|pi| to_old(*pi).0).collect();
+     midnight_zk_stdlib_v1::prove::<_, transient_crypto_old::proofs::TranscriptHash>(
+         keys.params.as_ref(),
+@@ -195,6 +197,18 @@ fn csl_spend_relation_end_to_end() {
+     let mut zeroed = pis.clone();
+     zeroed[0] = 0.into();
+     assert!(!verifies(&keys, &proof, &zeroed), "a guarded spend cannot be presented as unguarded");
++    // 2b. The appended route authenticators are the gate and entry point; changing
++    //     any of them (as a claiming contract would) fails verification.
++    let n = pis.len();
++    for i in [n - 5, n - 4, n - 3, n - 2, n - 1] {
++        let mut routed = pis.clone();
++        routed[i] = routed[i] + Fr::from(1);
++        assert!(!verifies(&keys, &proof, &routed), "tampering with route public input {i} must fail");
++    }
++    // The mode input is 1 for a guarded coin.
++    assert_eq!(pis[n - 5], Fr::from(1), "mode must be GateContract");
++    assert_eq!(&pis[n - 4..n - 2], &gated.gate_address, "gate address is authenticated");
++    assert_eq!(&pis[n - 2..], &gated.ep_hash, "entry point is authenticated");
+ 
+     // 3. Legacy coin of an Empty-rule type: proves with binding 0.
+     let legacy = f.witness(RULE_EMPTY, base_witness(&mut rng, f.empty_type(), true));
+@@ -251,20 +265,80 @@ fn csl_spend_relation_rejects_wrong_rule_witness() {
+ #[test]
+ #[ignore]
+ fn write_csl_spend_verifier_key() {
+-    use sha2::Digest;
+     let keys = keys();
+     let vk = VerifierKey::from(keys.vk.clone());
+     let mut bytes = Vec::new();
+     serialize::tagged_serialize(&vk, &mut bytes).expect("vk serialization must succeed");
+     let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../zswap/static");
+     std::fs::write(format!("{dir}/spend.verifier"), &bytes).expect("write vk");
+-    let digest = sha2::Sha256::digest(&bytes);
++    // The embedded-key pin is `spend.verifier.csl.sha256` (verified by
++    // `zswap::verify::embedded_spend_verifier_key_is_the_csl_key`). The
++    // `spend.verifier.sha256` sidecar is left untouched: it governs download
++    // verification of the legacy artifacts the data provider still serves.
++    let digest = base_crypto::hash::persistent_hash(&bytes);
+     std::fs::write(
+-        format!("{dir}/spend.verifier.sha256"),
+-        format!("{}  spend.verifier\n", hex::encode(digest)),
++        format!("{dir}/spend.verifier.csl.sha256"),
++        format!("{}  spend.verifier\n", hex::encode(digest.0)),
++    )
++    .expect("write csl sha256");
++    eprintln!("wrote {} bytes, persistent_hash {}", bytes.len(), hex::encode(digest.0));
++}
++
++/// Closing the previous CSL route: a spend proven with the historical v1 CSL
++/// relation (the reviewed implementation's layout: 68 public inputs, gate/ep in
++/// the binding, no blinding, no route authenticators) does not verify under the
++/// current v2 CSL verifier key. This is the same key the ledger embeds, so the
++/// ledger rejects a v1-layout spend proof.
++#[test]
++fn historical_v1_csl_proofs_do_not_verify_under_v2_key() {
++    use midnight_zkir::zswap_spend_csl_v1_historical::{CslSpendWitnessV1, ZswapSpendCslV1};
++    let mut rng = ChaCha20Rng::from_seed([0x1a; 32]);
++    let keys = keys(); // the current (v2) relation's key
++    let f = Fixture::new(&mut rng);
++
++    // Build and prove a v1-layout witness for a guarded coin of a type derived
++    // the v1 way (gate/ep in the binding). We reuse the current fixture's gated
++    // type, which is identical (the token derivation did not change).
++    let base = base_witness(&mut rng, f.gated_type(), true);
++    let v1 = CslSpendWitnessV1 {
++        rule_kind: Fr::from(RULE_GATE_CONTRACT),
++        domain_sep: split_bytes32(&f.domain_sep),
++        mint_address: split_bytes32(&f.mint),
++        gate_address: split_bytes32(&f.gate),
++        ep_hash: split_bytes32(&f.ep_hash),
++        base,
++    };
++    let relation = ZswapSpendCslV1;
++    let circuit = midnight_zk_stdlib_v1::MidnightCircuit::from_relation(&relation);
++    let k = circuit.min_k() as u8;
++    let v1_params = params(k);
++    let vk1 = midnight_zk_stdlib_v1::setup_vk(v1_params.as_ref(), &relation);
++    let pk1 = midnight_zk_stdlib_v1::setup_pk(&relation, &vk1);
++    let pis_v1 = v1.public_inputs();
++    let pis_old: Vec<_> = pis_v1.iter().map(|pi| to_old(*pi).0).collect();
++    let proof = midnight_zk_stdlib_v1::prove::<_, transient_crypto_old::proofs::TranscriptHash>(
++        v1_params.as_ref(),
++        &pk1,
++        &relation,
++        &pis_old,
++        v1,
++        &mut rng,
+     )
+-    .expect("write sha256");
+-    eprintln!("wrote {} bytes, sha256 {}", bytes.len(), hex::encode(digest));
++    .expect("historical v1 proving must succeed");
++    // Sanity: it verifies under its own v1 key.
++    assert!(
++        VerifierKey::from(vk1)
++            .verify(
++                &transient_crypto_old::proofs::PARAMS_VERIFIER,
++                &transient_crypto_old::proofs::Proof(proof.clone()),
++                pis_v1.iter().copied().map(to_old),
++            )
++            .is_ok(),
++        "sanity: the v1 proof verifies under the v1 key"
++    );
++    // It must NOT verify under the current v2 key, with its own 68 inputs or when
++    // padded toward the v2 layout.
++    assert!(!verifies(&keys, &proof, &pis_v1), "a v1 CSL proof must be rejected by the v2 key");
+ }
+ 
+ /// Closing the old proof route: a spend proven with the pre-CSL relation and
+diff --git a/zswap/src/construct.rs b/zswap/src/construct.rs
+index 4a70e89c..d335ff09 100644
+--- a/zswap/src/construct.rs
++++ b/zswap/src/construct.rs
+@@ -103,6 +103,7 @@ impl<D: DB> Input<ProofPreimage, D> {
+             tree,
+             derivation,
+         )
++        .map(|(input, _rho)| input)
+     }
+ 
+     pub fn retarget_segment(&self, new_segment: u16) -> Self {
+@@ -144,6 +145,12 @@ impl<D: DB> Input<ProofPreimage, D> {
+ 
+     /// `derivation` carries the token-type derivation inputs the CSL spend
+     /// circuit re-derives (`None` is only valid for the native, all-zero type).
++    ///
++    /// For a `GateContract` rule the input's policy binding is a hiding
++    /// commitment blinded with fresh randomness `rho` drawn from `rng`. `rho` is
++    /// returned to the caller (`Some` for guarded spends) because the gate call
++    /// that authorizes this spend must prove the same binding and therefore
++    /// needs the same blinding as a private witness. It is never serialized.
+     pub(crate) fn new_from_secret_key<A: Debug + Storable<D>, R: Rng + CryptoRng + ?Sized>(
+         rng: &mut R,
+         coin: &QualifiedCoinInfo,
+@@ -151,7 +158,7 @@ impl<D: DB> Input<ProofPreimage, D> {
+         sk: SenderEvidence<'_>,
+         tree: &MerkleTree<A, D>,
+         derivation: Option<&TokenDerivation>,
+-    ) -> Result<Self, OfferCreationFailed> {
++    ) -> Result<(Self, Option<Fr>), OfferCreationFailed> {
+         let rc_e: EmbeddedFr = rng.r#gen();
+         let rc = Fr::try_from(rc_e).expect("Fr should be larger than EmbeddedFr");
+         let nullifier = CoinInfo::from(coin).nullifier(&sk);
+@@ -200,18 +207,23 @@ impl<D: DB> Input<ProofPreimage, D> {
+             value_commitment.0
+         ));
+         let Commitment(hash) = CoinInfo::from(coin).commitment(&sk.clone().into());
+-        // CSL witness prefix: rule kind, domain separator, minting address, gate, entry point.
++        // CSL witness prefix: rule kind, domain separator, minting address, gate,
++        // entry point, and the binding's blinding `rho`.
+         let zero32 = HashOutput([0u8; 32]);
+-        let (rule_kind, domain_sep, mint_address, gate, ep_hash, policy) = match derivation {
+-            None => (0u64, zero32, ContractAddress(zero32), ContractAddress(zero32), zero32, None),
++        let (rule_kind, domain_sep, mint_address, gate, ep_hash, policy, rho) = match derivation {
++            None => (0u64, zero32, ContractAddress(zero32), ContractAddress(zero32), zero32, None, None),
+             Some(d) => match &d.rule {
+-                SpendRule::Empty => (0u64, d.domain_sep, d.mint_address, ContractAddress(zero32), zero32, None),
++                SpendRule::Empty => (0u64, d.domain_sep, d.mint_address, ContractAddress(zero32), zero32, None, None),
+                 SpendRule::GateContract(gate, ep_hash) => {
+                     let sender = match &sk {
+                         SenderEvidence::User(sk) => sk.public_key().0,
+                         SenderEvidence::Contract(addr) => addr.0,
+                     };
+-                    let binding = csl_policy_binding(&nullifier, &sender, gate, ep_hash);
++                    // Fresh, uniform blinding: the binding must hide the sender from
++                    // anyone who knows a candidate key, so it is drawn from the
++                    // caller's cryptographic RNG once per spend and never reused.
++                    let rho: Fr = rng.r#gen();
++                    let binding = csl_policy_binding(&nullifier, &sender, &coin.type_, rho);
+                     (
+                         1u64,
+                         d.domain_sep,
+@@ -223,6 +235,7 @@ impl<D: DB> Input<ProofPreimage, D> {
+                             entry_point_hash: *ep_hash,
+                             binding,
+                         }),
++                        Some(rho),
+                     )
+                 }
+                 SpendRule::GateCircuit(_) => return Err(OfferCreationFailed::UnsupportedSpendRule),
+@@ -235,6 +248,7 @@ impl<D: DB> Input<ProofPreimage, D> {
+         inputs.extend(fr_pair(&mint_address.0.0));
+         inputs.extend(fr_pair(&gate.0.0));
+         inputs.extend(fr_pair(&ep_hash.0));
++        inputs.push(rho.unwrap_or_else(|| Fr::from(0)));
+         sk.field_repr(&mut inputs);
+         tree.path_for_leaf(coin.mt_index, ((), hash))
+             .map_err(OfferCreationFailed::InvalidIndex)?
+@@ -267,7 +281,7 @@ impl<D: DB> Input<ProofPreimage, D> {
+             proof: Arc::new(proof_preimage),
+         };
+         //debug_assert!(inp.well_formed().is_ok());
+-        Ok(inp)
++        Ok((inp, rho))
+     }
+ }
+ 
+diff --git a/zswap/src/local.rs b/zswap/src/local.rs
+index ac0c8095..f3edf8fd 100644
+--- a/zswap/src/local.rs
++++ b/zswap/src/local.rs
+@@ -34,6 +34,7 @@ use storage::storage::default_storage;
+ use storage::storage::{HashMap, Map};
+ use transient_crypto::encryption;
+ use transient_crypto::merkle_tree::{self, InvalidUpdate, MerkleTree, MerkleTreeCollapsedUpdate};
++use transient_crypto::curve::Fr;
+ use transient_crypto::proofs::ProofPreimage;
+ use transient_crypto::repr::FieldRepr;
+ 
+@@ -245,11 +246,14 @@ impl<D: DB> State<D> {
+         segment: Option<u16>,
+     ) -> Result<(State<D>, Input<ProofPreimage, D>), OfferCreationFailed> {
+         self.spend_from_tree(rng, secret_keys, coin, segment, &self.merkle_tree.clone(), None)
++            .map(|(state, input, _rho)| (state, input))
+     }
+ 
+     /// Spends a coin whose token type is a contract-derived type: the CSL spend
+     /// circuit re-derives the type from `derivation`, and for a `GateContract`
+-    /// rule the input carries the policy binding the gate must authorize.
++    /// rule the input carries the policy binding the gate must authorize, and
++    /// the returned `rho` (always `Some` for a `GateContract` rule) is the
++    /// private blinding the gate's `authorize` proof must be given.
+     #[instrument(skip(self, rng))]
+     pub fn spend_with_derivation<R: Rng + CryptoRng + ?Sized>(
+         &self,
+@@ -258,7 +262,7 @@ impl<D: DB> State<D> {
+         coin: &QualifiedCoinInfo,
+         segment: Option<u16>,
+         derivation: &TokenDerivation,
+-    ) -> Result<(State<D>, Input<ProofPreimage, D>), OfferCreationFailed> {
++    ) -> Result<(State<D>, Input<ProofPreimage, D>, Option<Fr>), OfferCreationFailed> {
+         self.spend_from_tree(
+             rng,
+             secret_keys,
+@@ -278,8 +282,8 @@ impl<D: DB> State<D> {
+         segment: Option<u16>,
+         tree: &MerkleTree<(), D>,
+         derivation: Option<&TokenDerivation>,
+-    ) -> Result<(State<D>, Input<ProofPreimage, D>), OfferCreationFailed> {
+-        let inp = Input::new_from_secret_key(
++    ) -> Result<(State<D>, Input<ProofPreimage, D>, Option<Fr>), OfferCreationFailed> {
++        let (inp, rho) = Input::new_from_secret_key(
+             rng,
+             coin,
+             segment,
+@@ -291,7 +295,7 @@ impl<D: DB> State<D> {
+             pending_spends: self.pending_spends.insert(inp.nullifier, *coin),
+             ..self.clone()
+         };
+-        Ok((res, inp))
++        Ok((res, inp, rho))
+     }
+ 
+     #[instrument(skip(self, rng))]
+@@ -307,7 +311,7 @@ impl<D: DB> State<D> {
+             .try_update_hash(0, output.coin_com.0, ())
+             .map_err(OfferCreationFailed::MerkleTreeError)?
+             .rehash();
+-        let (res, input) = self.spend_from_tree(rng, secret_keys, coin, segment, &tree, None)?;
++        let (res, input, _rho) = self.spend_from_tree(rng, secret_keys, coin, segment, &tree, None)?;
+         let io = Transient {
+             nullifier: input.nullifier,
+             coin_com: output.coin_com,
+diff --git a/zswap/src/verify.rs b/zswap/src/verify.rs
+index d56f2e4e..d20e521d 100644
+--- a/zswap/src/verify.rs
++++ b/zswap/src/verify.rs
+@@ -17,6 +17,7 @@ use crate::error::MalformedOffer;
+ #[cfg(any(feature = "proof-verifying", test))]
+ use crate::filter_invalid;
+ use crate::structure::*;
++use coin_structure::custom_spend::fr_pair;
+ #[cfg(feature = "proof-verifying")]
+ use base_crypto::fab::AlignedValue;
+ #[cfg(test)]
+@@ -212,8 +213,8 @@ impl<D: DB> Input<Proof, D> {
+             (Fr, Fr),
+             self.value_commitment.0
+         ));
+-        // CSL: a guarded input carries its policy binding in the proof's first
+-        // public input; an unguarded input must have proven `0` there.
++        // CSL: a guarded input carries its (hiding) policy binding in the proof's
++        // first public input; an unguarded input must have proven `0` there.
+         let binding: Fr = self
+             .policy
+             .as_ref()
+@@ -223,6 +224,24 @@ impl<D: DB> Input<Proof, D> {
+         for op in with_outputs(prog.into_iter(), [true.into(), segment.into()].into_iter()) {
+             op.field_repr(&mut statement);
+         }
++        // CSL: the authenticated route. The proof's five trailing public inputs
++        // are the mode (0 = Empty, 1 = GateContract) and the gate address and
++        // entry point the circuit derived the token type from. They are filled
++        // here from the input's public `policy`, so the routing fields the ledger
++        // matches on are authenticated by the proof: repointing `policy.gate` or
++        // `policy.entry_point_hash` at another contract or entry point, or
++        // omitting `policy` on a guarded coin, fails verification. The mode is
++        // explicit; nothing is inferred from the binding being zero.
++        let (mode, route_gate, route_ep): (Fr, [Fr; 2], [Fr; 2]) = match self.policy.as_ref() {
++            Some(p) => {
++                let p = p.deref();
++                (1.into(), fr_pair(&p.gate.0.0), fr_pair(&p.entry_point_hash.0))
++            }
++            None => (0.into(), [0.into(); 2], [0.into(); 2]),
++        };
++        statement.push(mode);
++        statement.extend(route_gate);
++        statement.extend(route_ep);
+         SPEND_VK
+             .verify(
+                 &transient_crypto_old::proofs::PARAMS_VERIFIER,
+diff --git a/zswap/static/spend.verifier b/zswap/static/spend.verifier
+index e25a6cd2d986c7ee957a49ccf089796756286f94..8432fb2a549e90d99847131ecf4d2325c004f295 100644
+GIT binary patch
+delta 1410
+zcmV-|1%3L55{D9yEq_S>0009IB>(^bh`;eWdRNNSE@e6S6Tgs9_}u-+QuntgBtdjU
+zl~14GqGreEnlT6(SQp}Lu5fl_r481psS#H3th1N|aNM0Q9O#&ttSg1jfoXFngyKmU
+z+R1!=_%a-FPAWumXJ0VMq#$|imQfr*JAoci;kSjSbdkII&wuq&^8wJYd;nI2P?hu}
+zMh?J|qs|Rz0%lvHrG}!T>B%u&$4}O-@GN_1XItOLFQ2|N>n|+`GTRC&l6eDrJjr_=
+zt^w0t9mbE(E|X@KX80@&GEBg&>)FScE`TVhp4>-#!2M})JBRkEq6cB6(|*@m275u#
+z4q#mJ_LG*b?0=m@uSwTqR&W=PXoWqE|1ICYN`;p!zEi{RAG-qh5;#xAGV#|dS;M0)
+zMh}G7Rm1YAvMV;v*qNp!VnR}34%L9J9_uNKy`vs^E|xg*<~!wDU5l-@cYhNvvBQkw
+z5-5M>xJHGUI-fj1xi_W>8717bzuP5sd<UzR+qmIEpMMc^y__LU2d%08&p4>AHw~T%
+zH4gKE@KW^pe;cIwpE(aeNRk`X7Bm$h)_s;Ah{}sx_!~xK*i;kB^f+O-YR}YtBhf_j
+z8pG(~wg)husMEe1cf#QKHhJcMeI)sdnbq!=vWEp{5ND~+>t1K16IV}@vCC@znm&vR
+z2T#kv`W{EE1A~y0;hVOBMf)^vGHl2Q*D{@^gm;absu9`<lScyZF_J@9%gclA08erN
+z3QQS`7z5IU>GqAj8R=}ma3vEUA-_>fgRDc=?^x^^bg=S6?!c3A116Jz0||eZPQt82
+zdE%~r#-g0(vX^slV;sEjN_=l^xoytmk;{`~T-VYuGsB>DZQ8TPp(in+@kVz9WJ5{k
+zy*Hf(lxg!TG5xFiS%YZMq}1S|E6Zxwk_Z(Y?|rxpD)r<-$Pg!m5tx*1fyhFc%rGTm
+z%EJz}6oe3HB{D6xJFSy8r3Zfk^f9Dl=LM#m@=nA{`s#-yx9@$G+)8cb%CF8@!8OW`
+z$bY)4+tCpi4>B+HkKHRvXL{(2gVoQ81v!Xwij1I<gT3pgX_KEGJ7IGOAhc+H$Nl#6
+z^tYMtrIPepbUh}z6(@#<m8S9zx|nBuoEO#9ui8kuME+s-|DygLbYQcU1Tq4Dm!{p^
+zLfCn=bDu#qYbltzNI3P30r3WLGa?ozXWKL+Xhj}>tXjmzL)Rn*H*%jji{=JIz|Jb4
+zO;alUD+>`VLZ++Gc<+uq?{lv>fSp6z5vG|La%Ijn73e(u>-DY(s~DcKNepFh)fllf
+z{{>J<V}qf_fA5HyPBXsi(J^FyFwllI#%srAeqvBm-lLAS`G_q4#BAYNrtbTtMKDf0
+zZ+nQ=zWV$BF)U)@u>s@PjncYJ(MxPBDwu6a^iVh~|CZB&z-5@{1+iiBhas}D%Gi)4
+zTVz{Z-Y_Z+Y2@n_T;`drkhz5et5H<s!WCXu#gnvi9Qu|E<wJSoq>A-_VrY{-oXr?#
+z`9`^|`w{&27&jYe@BZWHfE0l9;|=x5`G>bW`^FQA`#f2Qjwe-YNQlRW{f;wQczuYj
+z1Uw#3?kvMSkz+wU!g#q=V2VTEWk9*n<^t!(=*CDbj={_CJ%Z2%yedYfllI*Z#LQ+`
+zOL|X!IjP)aybt8!5Caec*?^CeM+h)~wVXa3e(7xyvlYx2kA0iQ)LS8&$@&kCNtNWF
+zBg%>18`J*-6vOT1?&asVWd>8jlLzTYor-VChhxtp5($~^CG&3wJs*IecD$v=3e&%z
+zk%l_R#ta8u@ZJc@Ox@B{g`FvqE%IY<oUBY!PAK>7Ii1@481mX2XB~HJ7%46hL7!Af
+QBAU|pLR`=3LA$ISt`vI1i~s-t
+
+delta 1410
+zcmV-|1%3L55{D9yEq_D+0009IB>(^bpf`lhxBnsNMZ@Vas6VJ+N}v6Sx)^+}6SH3C
+z&c9#6903Q>B?j?NdZY<sd>?JGh?{o;+fEDb5vvk>q%eEV>P5zKDf|7NAu)ou!>Y0^
+zQQjW!kMiau4uQurIt@e4w9(}jRK?U&$zK5IYlrDUb?wEOz<;z)<T7oQfvS6ajBA32
+z!UA>^u4mynK6$hdm!`a9QeZV4s>#noI!boRLg7Rkv;ZEQ%dHSxieoQR`HFS1ETz!G
+z`eBsRf^_o!X|&Msb^*Wsqz5%pQmj~c9s7UVQJx6c3k2(FX#q|ZZ_B`=zVt`dt7-LK
+zqeEw&(v$Gti+_a!=pnzo^BrG;9odu`T2(Fzc_Z?#VA=!_w?n@9&nV-*>~Nz_Jv-;!
+zr4x(hDihSrF22--MpRy=>D9-hvnpkM(G}}D!uK-&`ij}J&1=h?&!-yU2-p0Ot1F}F
+ze{3^Nk4d1%Ohy~&I&q*kiAbf^WRpg!GZR-PeKP;xhkuoM15LV^S=80exjPZA4B-8B
+zD{1jKl=86AFp&=O63BDmVDI*!Xm_#=z>*CBl`_8T4fMNWIpG;yi=JkO8Owb&XT55@
+z1(z*eCXaf|CS{4e^C%5IGUFfzE7YxlnunT9LeY*8qWb}>In*?<P>eiHJ7PTlsbCJI
+zuG`y4VjlHg!tHw@JYDy-@LMOcA2+M#J4I8Zw>8{nJOz*RlScyZF^$XMza=4_Uk;7}
+zag!2EZ>H#({MXTKFpE1Rv#O=s&HV+yJ+|qi5gG=GE=ev6Fu;>>116Jz0||etnB)<c
+zmss^}_kv>{Pi*pk(pAPE8k@@!9C0Dw{K$Q1pgN={1sMocs{I(3uX+xqo5^f2ILT=L
+zXNLOU$VQB>S+B+-3!<DOx!FaR?&EZ+>@AifdHNvgYR$LnRG9I&60?s8BhWTJ9U3=S
+zO{=iV{!r@@!$Wvi_;mUIeO!NBpxt~5#>Um1??9CB2xuiytg8WpaPU13@LlfF2HC!T
+zEdCq=A%K(w8S)a#ng~p=(pbN@V)XPrfPM}ssl4`Qk&*UqRo?>nsRt7i=;jNX3*D*S
+z3sMG~n}o*iy8^@Eo5@AML%`?e+5fhvH?vT{ui8kuME+s-|DygLbYQcU1Tq4Dt-Srn
+zUkx}t>W0W^(a`opTuge`Ju}eSwF=bFNh)U|$aQs0mS<J=^|m$Eb_IgBgJ19{@R}N_
+zZBJI$S`++2nqm%}ma*qC0Up9AQ!OAE=g4fJ?B=|rJq?m+drvd7s(fg#E&LilWB=1!
+zCv0aJhrLJ&GT%;8&n@hdbPzj#t>Mk%fy*z6=I26Wp<;TA=&S}Sf$!BxEc#&Foh(%9
+z>vXZy&ym&{+kPSwT(uPEz&MS;If@^={&*Pb74~F~vV^@|ioXY1xyng&)iq~hYWZa8
+zUKiw@)e2StJ^TwZSq+ich1>P|E{V5PAYpjFoQ^4sIHy}`ew+UubnDT7rn(f^9UI@~
+z5l^8!WxO1Z!3@)#i>c|~Q$yFd>r1HG02`Ayau_tFd@yMeU_sg*a>o<ft+%vuVfNf@
+zSZu+Z2@_fefFKOk(3rS^B+`^o!e*x{nO2TDZ5>Tl_V{*eTTC{?ih61#n5EvDNd&N`
+zP)X<}?W1WvC4!6gmd2k08()c&M+h)~j92MzTazx)wZL7o{{-3hMvPS1faRt4oQTAb
+z^Y)*(semP?Bo8H{9qI(pYvig!j|)GlU(%eGuSoTopAP2ayVu~e3f5cebs(2#;`JOV
+z)e{)Yuz4W-a3PLZ5y$?;qk}_ys3|%FgWx&dQQLg9u}Q4OLr>%Us6j0%7CoF1Ii4g}
+QhSLPd@pK=5kISo(ixWA;Z2$lO
+
+diff --git a/zswap/static/spend.verifier.csl.sha256 b/zswap/static/spend.verifier.csl.sha256
+index f8c4a4b2..1c3ee8ed 100644
+--- a/zswap/static/spend.verifier.csl.sha256
++++ b/zswap/static/spend.verifier.csl.sha256
+@@ -1 +1 @@
+-688a23d48518716eb0e07bdbed302f318c2931299e0aa43b90b8c2b9751c1fea  spend.verifier
++bb6033fb0cccf70eec4328dca6d61d5e95d336266e629c340bd0eaefbf39e932  spend.verifier
+-- 
+2.43.0
+

@@ -1,0 +1,200 @@
+running 14 tests
+test approved_transfer_still_succeeds ... ok
+test attack_cloned_gate_is_rejected ... cloned-gate attack: rejected at verification: Zswap(InvalidProof(Invalid proof
+Stack backtrace:
+   0: <anyhow::Error>::msg::<alloc::string::String>
+   1: anyhow::__private::format_err
+   2: <midnight_zswap::structure::Output<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed::{closure#1}
+   3: <midnight_zswap::structure::Input<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed
+   4: <midnight_zswap::structure::Offer<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed
+   5: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>::{closure#2}
+   6: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   7: <midnight_ledger_v10::test_utilities::TestState<midnight_storage_core::db::InMemoryDB>>::apply::<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr>
+   8: csl_regression::csl_common::attempt::{closure#0}
+   9: csl_regression::attack_cloned_gate_is_rejected::{closure#0}
+  10: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+  11: <csl_regression::attack_cloned_gate_is_rejected::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+  12: test::__rust_begin_short_backtrace::<core::result::Result<(), alloc::string::String>, fn() -> core::result::Result<(), alloc::string::String>>
+  13: test::run_test::{closure#0}
+  14: std::sys::backtrace::__rust_begin_short_backtrace::<test::run_test::{closure#1}, ()>
+  15: <std::thread::lifecycle::spawn_unchecked<test::run_test::{closure#1}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+  16: <std::sys::thread::unix::Thread>::new::thread_start
+  17: start_thread
+             at ./nptl/pthread_create.c:447:8
+  18: clone3
+             at ./misc/../sysdeps/unix/sysv/linux/x86_64/clone3.S:78:0))
+ok
+test attack_gate_substitution_is_rejected ... gate-substitution attack: rejected at verification: Zswap(InvalidProof(Invalid proof
+Stack backtrace:
+   0: <anyhow::Error>::msg::<alloc::string::String>
+   1: anyhow::__private::format_err
+   2: <midnight_zswap::structure::Output<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed::{closure#1}
+   3: <midnight_zswap::structure::Input<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed
+   4: <midnight_zswap::structure::Offer<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed
+   5: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>::{closure#2}
+   6: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   7: <midnight_ledger_v10::test_utilities::TestState<midnight_storage_core::db::InMemoryDB>>::apply::<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr>
+   8: csl_regression::csl_common::attempt::{closure#0}
+   9: csl_regression::attack_gate_substitution_is_rejected::{closure#0}
+  10: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+  11: <csl_regression::attack_gate_substitution_is_rejected::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+  12: test::__rust_begin_short_backtrace::<core::result::Result<(), alloc::string::String>, fn() -> core::result::Result<(), alloc::string::String>>
+  13: test::run_test::{closure#0}
+  14: std::sys::backtrace::__rust_begin_short_backtrace::<test::run_test::{closure#1}, ()>
+  15: <std::thread::lifecycle::spawn_unchecked<test::run_test::{closure#1}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+  16: <std::sys::thread::unix::Thread>::new::thread_start
+  17: start_thread
+             at ./nptl/pthread_create.c:447:8
+  18: clone3
+             at ./misc/../sysdeps/unix/sysv/linux/x86_64/clone3.S:78:0))
+ok
+test historical_v1_spend_proof_is_rejected_by_the_ledger ... spliced historical v1 spend proof: rejected at verification: Zswap(InvalidProof(Invalid proof
+Stack backtrace:
+   0: <anyhow::Error>::msg::<alloc::string::String>
+   1: anyhow::__private::format_err
+   2: <midnight_zswap::structure::Output<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed::{closure#1}
+   3: <midnight_zswap::structure::Input<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed
+   4: <midnight_zswap::structure::Offer<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed
+   5: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>::{closure#2}
+   6: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   7: <midnight_ledger_v10::test_utilities::TestState<midnight_storage_core::db::InMemoryDB>>::apply::<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr>
+   8: csl_regression::historical_v1_spend_proof_is_rejected_by_the_ledger::{closure#0}
+   9: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+  10: <csl_regression::historical_v1_spend_proof_is_rejected_by_the_ledger::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+  11: test::__rust_begin_short_backtrace::<core::result::Result<(), alloc::string::String>, fn() -> core::result::Result<(), alloc::string::String>>
+  12: test::run_test::{closure#0}
+  13: std::sys::backtrace::__rust_begin_short_backtrace::<test::run_test::{closure#1}, ()>
+  14: <std::thread::lifecycle::spawn_unchecked<test::run_test::{closure#1}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+  15: <std::sys::thread::unix::Thread>::new::thread_start
+  16: start_thread
+             at ./nptl/pthread_create.c:447:8
+  17: clone3
+             at ./misc/../sysdeps/unix/sysv/linux/x86_64/clone3.S:78:0))
+ok
+test init_with_wrong_admin_is_rejected ... init with wrong admin: rejected at verification: InvalidProof(v1 verification: Invalid proof
+Stack backtrace:
+   0: <anyhow::Error>::msg::<alloc::string::String>
+   1: anyhow::__private::format_err
+   2: <midnight_ledger_v10::structure::ProofMarker as midnight_ledger_v10::structure::ProofKind<midnight_storage_core::db::InMemoryDB>>::proof_verify::{closure#2}
+   3: <midnight_ledger_v10::structure::ContractAction<midnight_ledger_v10::structure::ProofMarker, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   4: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   5: <midnight_ledger_v10::test_utilities::TestState<midnight_storage_core::db::InMemoryDB>>::apply::<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr>
+   6: csl_regression::init_with_wrong_admin_is_rejected::{closure#0}
+   7: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+   8: <csl_regression::init_with_wrong_admin_is_rejected::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+   9: test::__rust_begin_short_backtrace::<core::result::Result<(), alloc::string::String>, fn() -> core::result::Result<(), alloc::string::String>>
+  10: test::run_test::{closure#0}
+  11: std::sys::backtrace::__rust_begin_short_backtrace::<test::run_test::{closure#1}, ()>
+  12: <std::thread::lifecycle::spawn_unchecked<test::run_test::{closure#1}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+  13: <std::sys::thread::unix::Thread>::new::thread_start
+  14: start_thread
+             at ./nptl/pthread_create.c:447:8
+  15: clone3
+             at ./misc/../sysdeps/unix/sysv/linux/x86_64/clone3.S:78:0)
+ok
+test mismatched_blinding_is_rejected ... mismatched blinding: rejected at verification: EffectsCheckFailure(SpendAuthorizationsNEClaimed { inputs: [(0, ContractAddress(e0c516680f6198e94345e9a3cb9f528409755db496afd93fc0b10f1aff82be3e), f326281ad8e36da9d1e01d75fd31702236ff902fdd6d9f30694f5ca41a9eba2d, 40132c0d76130b816cb80cb2f898df41e46b1980b8efade9482f594135cbd111)], claimed: [(0, ContractAddress(e0c516680f6198e94345e9a3cb9f528409755db496afd93fc0b10f1aff82be3e), f326281ad8e36da9d1e01d75fd31702236ff902fdd6d9f30694f5ca41a9eba2d, 829aee599cffe3f1e59aaebab0fea68abd3bb36197863615c299e067e24d255d)] })
+ok
+test omitted_gate_call_is_rejected ... omitted gate call: rejected at verification: EffectsCheckFailure(SpendAuthorizationsNEClaimed { inputs: [(0, ContractAddress(fbcf8ddfb04bef33e42208da0d8ee1e1468e38e43a65e7dd21963b897e3f128a), f326281ad8e36da9d1e01d75fd31702236ff902fdd6d9f30694f5ca41a9eba2d, 9f26fc9fdb6ddf7a7f301f08b303d1b077842f0aa49b70a5a7c6e97379631f03)], claimed: [] })
+ok
+test omitted_policy_is_rejected ... omitted policy: rejected at verification: Zswap(InvalidProof(Invalid proof
+Stack backtrace:
+   0: <anyhow::Error>::msg::<alloc::string::String>
+   1: anyhow::__private::format_err
+   2: <midnight_zswap::structure::Output<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed::{closure#1}
+   3: <midnight_zswap::structure::Input<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed
+   4: <midnight_zswap::structure::Offer<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed
+   5: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>::{closure#2}
+   6: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   7: <midnight_ledger_v10::test_utilities::TestState<midnight_storage_core::db::InMemoryDB>>::apply::<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr>
+   8: csl_regression::csl_common::attempt::{closure#0}
+   9: csl_regression::omitted_policy_is_rejected::{closure#0}
+  10: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+  11: <csl_regression::omitted_policy_is_rejected::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+  12: test::__rust_begin_short_backtrace::<core::result::Result<(), alloc::string::String>, fn() -> core::result::Result<(), alloc::string::String>>
+  13: test::run_test::{closure#0}
+  14: std::sys::backtrace::__rust_begin_short_backtrace::<test::run_test::{closure#1}, ()>
+  15: <std::thread::lifecycle::spawn_unchecked<test::run_test::{closure#1}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+  16: <std::sys::thread::unix::Thread>::new::thread_start
+  17: start_thread
+             at ./nptl/pthread_create.c:447:8
+  18: clone3
+             at ./misc/../sysdeps/unix/sysv/linux/x86_64/clone3.S:78:0))
+ok
+test protected_asset_survives_root_update ... approved->unapproved after update: rejected at verification: InvalidProof(v1 verification: Invalid proof
+Stack backtrace:
+   0: <anyhow::Error>::msg::<alloc::string::String>
+   1: anyhow::__private::format_err
+   2: <midnight_ledger_v10::structure::ProofMarker as midnight_ledger_v10::structure::ProofKind<midnight_storage_core::db::InMemoryDB>>::proof_verify::{closure#2}
+   3: <midnight_ledger_v10::structure::ContractAction<midnight_ledger_v10::structure::ProofMarker, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   4: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   5: <midnight_ledger_v10::test_utilities::TestState<midnight_storage_core::db::InMemoryDB>>::apply::<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr>
+   6: csl_regression::csl_common::attempt::{closure#0}
+   7: csl_regression::protected_asset_survives_root_update::{closure#0}
+   8: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+   9: <csl_regression::protected_asset_survives_root_update::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+  10: test::__rust_begin_short_backtrace::<core::result::Result<(), alloc::string::String>, fn() -> core::result::Result<(), alloc::string::String>>
+  11: test::run_test::{closure#0}
+  12: std::sys::backtrace::__rust_begin_short_backtrace::<test::run_test::{closure#1}, ()>
+  13: <std::thread::lifecycle::spawn_unchecked<test::run_test::{closure#1}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+  14: <std::sys::thread::unix::Thread>::new::thread_start
+  15: start_thread
+             at ./nptl/pthread_create.c:447:8
+  16: clone3
+             at ./misc/../sysdeps/unix/sysv/linux/x86_64/clone3.S:78:0)
+ok
+test route_entry_point_substitution_is_rejected ... entry-point substitution: rejected at verification: Zswap(InvalidProof(Invalid proof
+Stack backtrace:
+   0: <anyhow::Error>::msg::<alloc::string::String>
+   1: anyhow::__private::format_err
+   2: <midnight_zswap::structure::Output<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed::{closure#1}
+   3: <midnight_zswap::structure::Input<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed
+   4: <midnight_zswap::structure::Offer<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed
+   5: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>::{closure#2}
+   6: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   7: <midnight_ledger_v10::test_utilities::TestState<midnight_storage_core::db::InMemoryDB>>::apply::<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr>
+   8: csl_regression::csl_common::attempt::{closure#0}
+   9: csl_regression::route_entry_point_substitution_is_rejected::{closure#0}
+  10: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+  11: <csl_regression::route_entry_point_substitution_is_rejected::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+  12: test::__rust_begin_short_backtrace::<core::result::Result<(), alloc::string::String>, fn() -> core::result::Result<(), alloc::string::String>>
+  13: test::run_test::{closure#0}
+  14: std::sys::backtrace::__rust_begin_short_backtrace::<test::run_test::{closure#1}, ()>
+  15: <std::thread::lifecycle::spawn_unchecked<test::run_test::{closure#1}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+  16: <std::sys::thread::unix::Thread>::new::thread_start
+  17: start_thread
+             at ./nptl/pthread_create.c:447:8
+  18: clone3
+             at ./misc/../sysdeps/unix/sysv/linux/x86_64/clone3.S:78:0))
+ok
+test second_asset_at_same_gate_gets_no_authorization ... second asset at same gate: rejected at verification: EffectsCheckFailure(SpendAuthorizationsNEClaimed { inputs: [(0, ContractAddress(384ec797a1646047e5b7c73a7e5b27277489322d38ef02f7503d3afbcf7426bd), f326281ad8e36da9d1e01d75fd31702236ff902fdd6d9f30694f5ca41a9eba2d, b34888ec8daf9d5e9d1117bdf142234b700b014db25cd7a52ed8ff0a00b89e19)], claimed: [(0, ContractAddress(384ec797a1646047e5b7c73a7e5b27277489322d38ef02f7503d3afbcf7426bd), f326281ad8e36da9d1e01d75fd31702236ff902fdd6d9f30694f5ca41a9eba2d, 87fb8b8ef9623177460ef413c4c516bfaf6c7ca696f06ea5d33b68bac2a27a41)] })
+ok
+test second_initialization_cannot_retarget ... second init (forged state): rejected at application: Failure(Transcript(Execution(ReadMismatch { expected: <[-]: b32>, actual: <[550b13c36dc50bf978f3eeadad2d44e0e1b353b731a64df098326822fcc94bf5]: b32> })))
+ok
+test tampered_binding_is_rejected ... tampered binding: rejected at verification: Zswap(InvalidProof(Invalid proof
+Stack backtrace:
+   0: <anyhow::Error>::msg::<alloc::string::String>
+   1: anyhow::__private::format_err
+   2: <midnight_zswap::structure::Output<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed::{closure#1}
+   3: <midnight_zswap::structure::Input<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed
+   4: <midnight_zswap::structure::Offer<midnight_transient_crypto::proofs::Proof, midnight_storage_core::db::InMemoryDB>>::well_formed
+   5: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>::{closure#2}
+   6: <midnight_ledger_v10::structure::Transaction<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr, midnight_storage_core::db::InMemoryDB>>::well_formed::<midnight_ledger_v10::structure::LedgerState<midnight_storage_core::db::InMemoryDB>>
+   7: <midnight_ledger_v10::test_utilities::TestState<midnight_storage_core::db::InMemoryDB>>::apply::<midnight_ledger_v10::structure::Signature, midnight_ledger_v10::structure::ProofMarker, midnight_transient_crypto::curve::EmbeddedFr>
+   8: csl_regression::csl_common::attempt::{closure#0}
+   9: csl_regression::tampered_binding_is_rejected::{closure#0}
+  10: <tokio::runtime::runtime::Runtime>::block_on::<core::pin::Pin<&mut dyn core::future::future::Future<Output = ()>>>
+  11: <csl_regression::tampered_binding_is_rejected::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+  12: test::__rust_begin_short_backtrace::<core::result::Result<(), alloc::string::String>, fn() -> core::result::Result<(), alloc::string::String>>
+  13: test::run_test::{closure#0}
+  14: std::sys::backtrace::__rust_begin_short_backtrace::<test::run_test::{closure#1}, ()>
+  15: <std::thread::lifecycle::spawn_unchecked<test::run_test::{closure#1}, ()>::{closure#1} as core::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+  16: <std::sys::thread::unix::Thread>::new::thread_start
+  17: start_thread
+             at ./nptl/pthread_create.c:447:8
+  18: clone3
+             at ./misc/../sysdeps/unix/sysv/linux/x86_64/clone3.S:78:0))
+ok
+test transfer_before_initialization_is_rejected ... transfer before init: rejected at verification: EffectsCheckFailure(SpendAuthorizationsNEClaimed { inputs: [(0, ContractAddress(247bd156b0d982f1be065dc769af24b8ac589fd69831d1f1676305ce82ab47e7), f326281ad8e36da9d1e01d75fd31702236ff902fdd6d9f30694f5ca41a9eba2d, ba366630ed9cd2599ac6ef0e32f4101bc1359ceeaa3615fe91766655c0a07601)], claimed: [(0, ContractAddress(247bd156b0d982f1be065dc769af24b8ac589fd69831d1f1676305ce82ab47e7), f326281ad8e36da9d1e01d75fd31702236ff902fdd6d9f30694f5ca41a9eba2d, 55f37fd46741b8ebe2ab00ff5c17ec3a5e0afdd43f334b5fb2f1a14c1a2f795d)] })
+ok
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 328.82s
+RUN_EXIT=0
