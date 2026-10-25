@@ -1,6 +1,7 @@
 #!/bin/bash
+# Archived run script; container-specific paths were replaced by $SCRATCH.
 set -u
-S=/tmp/claude-0/-home-user-wea-japan-pos-poc/8fb10d81-7d79-5e0b-88f5-274972519579/scratchpad
+S=${SCRATCH:?set SCRATCH to the scratch directory}
 cd /home/user/midnightntwrk/midnight-ledger
 export CARGO_NET_GIT_FETCH_WITH_CLI=true CARGO_TERM_COLOR=never MIDNIGHT_PP="$S/params" RUST_MIN_STACK=67108864 MIDNIGHT_LEDGER_TEST_STATIC_DIR="$S/test-artifacts"
 L="$S/logs"; echo "full start $(date -u +%FT%TZ)" > "$L/full_marker.log"

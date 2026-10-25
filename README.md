@@ -32,10 +32,6 @@ questions, and how to run and extend the work. `scripts/reproduce.sh` reproduces
 clean machine against the commit pinned in `MANIFEST.json` (no Nix needed). The ledger code itself is
 on the `ledger-experiment` branch.
 
-The ledger changes were pushed first, by mistake, to a branch of an unrelated repository
-(`Jalal-1/wea-japan-pos-poc`, branch `claude/exciting-carson-rz5qr5`). This repository is the
-canonical home; the content is identical.
-
 ---
 
 ## Contents
