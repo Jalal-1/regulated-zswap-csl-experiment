@@ -620,7 +620,7 @@ impl Distribution<ClaimedUnshieldedSpendsKey> for Standard {
 /// contract chose, together with the [`SpendRule`] the minted token type
 /// commits to. Together with the calling contract's address this fully
 /// determines the minted
-/// [`ShieldedTokenType`](coin_structure::coin::ShieldedTokenType).
+/// [`ShieldedTokenType`].
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serializable, Storable, Hash)]
 #[storable(base)]
 #[tag = "contract-effects-shielded-mint-key[v1]"]
