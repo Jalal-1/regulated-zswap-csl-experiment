@@ -414,7 +414,14 @@ impl ZswapInput {
         let coin = value_to_qualified_shielded_coininfo(coin)?;
         let addr = from_hex_ser(contract)?;
         Ok(ZswapInput(ZswapInputTypes::UnprovenInput(
-            zswap::Input::new_contract_owned(&mut OsRng, &coin, segment, addr, &state.0.coin_coms)?,
+            zswap::Input::new_contract_owned(
+                &mut OsRng,
+                &coin,
+                segment,
+                addr,
+                &state.0.coin_coms,
+                None,
+            )?,
         )))
     }
 

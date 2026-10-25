@@ -136,9 +136,8 @@ async fn omitted_gate_call_is_rejected() {
 async fn approved_transfer_still_succeeds() {
     let mut f = fixture(0x106).await;
     let coin = regulated_coins(&f.state, &f.gate)[0];
-    let nullifier;
     let tx = regulated_transfer_tx(&f.state, &mut f.rng, &f.gate, &f.alice, &f.bob, &coin, &Default::default());
-    nullifier = first_input_nullifier(&tx);
+    let nullifier = first_input_nullifier(&tx);
     let proven = pay_and_prove(&mut f.state, &mut f.rng, &f.resolver, tx).await.expect("approved transfer must prove");
     let result = f.state.apply(&proven, WellFormedStrictness::default()).expect("must be well-formed");
     assert!(matches!(result, midnight_ledger::semantics::TransactionResult::Success(_)), "got {result:?}");

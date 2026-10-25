@@ -104,8 +104,7 @@ async fn t06_omitted_gate_call_is_rejected() {
         .expect("the spend itself proves; the policy is enforced by the ledger");
     let err = proven
         .well_formed(&f.state.ledger, WellFormedStrictness::default(), f.state.time)
-        .err()
-        .expect("must be rejected");
+        .expect_err("must be rejected");
     assert!(
         matches!(err, MalformedTransaction::EffectsCheckFailure(EffectsCheckError::SpendAuthorizationsNEClaimed { .. })),
         "unexpected rejection: {err:?}"
@@ -128,8 +127,7 @@ async fn t07_substituted_sender_is_rejected() {
         .expect("the gate accepts Bob as a sender; the mismatch is the ledger's to catch");
     let err = proven
         .well_formed(&f.state.ledger, WellFormedStrictness::default(), f.state.time)
-        .err()
-        .expect("must be rejected");
+        .expect_err("must be rejected");
     assert!(
         matches!(err, MalformedTransaction::EffectsCheckFailure(EffectsCheckError::SpendAuthorizationsNEClaimed { .. })),
         "unexpected rejection: {err:?}"
@@ -149,8 +147,7 @@ async fn t08_output_to_unchecked_recipient_is_rejected() {
         .expect("the gate's own statement is consistent; the coverage mismatch is the ledger's to catch");
     let err = proven
         .well_formed(&f.state.ledger, WellFormedStrictness::default(), f.state.time)
-        .err()
-        .expect("must be rejected");
+        .expect_err("must be rejected");
     assert!(
         matches!(err, MalformedTransaction::EffectsCheckFailure(EffectsCheckError::OutputCoverageNESegmentCommitments { .. })),
         "unexpected rejection: {err:?}"

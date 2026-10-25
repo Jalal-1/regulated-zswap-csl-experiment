@@ -236,8 +236,7 @@ async fn csl_baseline_corrupted_spend_proof_is_rejected() {
     });
     let err = bad
         .well_formed(&state.ledger, WellFormedStrictness::default(), state.time)
-        .err()
-        .expect("corrupted proof must be rejected");
+        .expect_err("corrupted proof must be rejected");
     assert_invalid_proof(err);
     assert!(state.ledger.zswap.nullifiers.get(&nullifier).is_none());
 }
@@ -251,8 +250,7 @@ async fn csl_baseline_altered_statement_is_rejected() {
     });
     let err = bad
         .well_formed(&state.ledger, WellFormedStrictness::default(), state.time)
-        .err()
-        .expect("altered statement must be rejected");
+        .expect_err("altered statement must be rejected");
     assert_invalid_proof(err);
     assert!(state.ledger.zswap.nullifiers.get(&nullifier).is_none());
 }

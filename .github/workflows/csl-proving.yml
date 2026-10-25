@@ -108,7 +108,7 @@ jobs:
 
       - name: Unit suites touched by the change
         run: |
-          cargo test -p midnight-coin-structure custom_spend
+          cargo test --release -p midnight-coin-structure custom_spend
           cargo test --release -p midnight-zkir --lib
           cargo test --release -p midnight-zkir --test zswap_spend
           cargo test --release -p midnight-zkir --test zswap_spend_csl
@@ -125,7 +125,7 @@ jobs:
       - name: Regression suite (gate route authentication, hiding binding, protected-token configuration, historical layouts)
         run: cargo test --release -p midnight-ledger-v10 --features proving --test csl_regression -- --nocapture --test-threads=1
 
-      - name: Record run metadata (part 2: artifact hashes)
+      - name: "Record run metadata (part 2, artifact hashes)"
         if: always()
         run: |
           {

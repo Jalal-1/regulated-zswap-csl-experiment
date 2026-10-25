@@ -111,7 +111,7 @@ impl Whitelist {
         let mut path = [(Fr::from(0), false); WHITELIST_DEPTH];
         let mut i = index;
         for (level, slot) in path.iter_mut().enumerate() {
-            let goes_left = i % 2 == 0;
+            let goes_left = i.is_multiple_of(2);
             let sibling = levels[level][if goes_left { i + 1 } else { i - 1 }];
             *slot = (sibling, goes_left);
             i /= 2;

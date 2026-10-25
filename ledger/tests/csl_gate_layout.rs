@@ -76,9 +76,9 @@ fn print_gate_program_layout() {
     let binding: Fr = Fr::from(0x5555u64);
     let claim_auth: Vec<Op<ResultModeVerify, InMemoryDB>> = vec![
         Op::Swap { n: 0 },
-        Op::Idx { cached: true, push_path: true, path: vec![Key::Value(AlignedValue::from(9u8).into())].into() },
-        Op::Push { storage: false, value: StateValue::Cell(Sp::new(AlignedValue::from(binding).into())).into() },
-        Op::Push { storage: false, value: StateValue::Null.into() },
+        Op::Idx { cached: true, push_path: true, path: vec![Key::Value(AlignedValue::from(9u8))].into() },
+        Op::Push { storage: false, value: StateValue::Cell(Sp::new(AlignedValue::from(binding))) },
+        Op::Push { storage: false, value: StateValue::Null },
         Op::Ins { cached: true, n: 2 },
         Op::Swap { n: 0 },
     ];
@@ -86,9 +86,9 @@ fn print_gate_program_layout() {
     let cm: [u8; 32] = [0xCD; 32];
     let claim_cov: Vec<Op<ResultModeVerify, InMemoryDB>> = vec![
         Op::Swap { n: 0 },
-        Op::Idx { cached: true, push_path: true, path: vec![Key::Value(AlignedValue::from(10u8).into())].into() },
-        Op::Push { storage: false, value: StateValue::Cell(Sp::new(AlignedValue::from(cm).into())).into() },
-        Op::Push { storage: false, value: StateValue::Null.into() },
+        Op::Idx { cached: true, push_path: true, path: vec![Key::Value(AlignedValue::from(10u8))].into() },
+        Op::Push { storage: false, value: StateValue::Cell(Sp::new(AlignedValue::from(cm))) },
+        Op::Push { storage: false, value: StateValue::Null },
         Op::Ins { cached: true, n: 2 },
         Op::Swap { n: 0 },
     ];
