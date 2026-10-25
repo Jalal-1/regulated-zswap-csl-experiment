@@ -60,7 +60,7 @@ Branch `main` (this branch):
 | `plan/review-of-v1.md`, `plan/plan_v1_to_v2.diff` | The source-verification review of revision 1 and the diff it produced. |
 | `design/stage1-design-decision.md` | The Stage 1 design decision (decisions D1 to D12, movement-path inventory P1 to P12) with section 6 "as built" notes. |
 | `design/next-steps.md` | Handoff for the next person: open items in order, and findings. |
-| `patches/000*-*.patch` | The ledger changes as a patch series (four commits) against `midnightntwrk/midnight-ledger` commit `fa995fa5791bc19112e97334a2d9265751c35fad` (branch `alexshielded/custom-spend-logic`, the Custom Spend Logic draft). Apply with `git am`. |
+| `patches/000*-*.patch` | The ledger changes as a patch series (seven commits) against `midnightntwrk/midnight-ledger` commit `fa995fa5791bc19112e97334a2d9265751c35fad` (branch `alexshielded/custom-spend-logic`, the Custom Spend Logic draft). Apply with `git am`. |
 | `results/results.md` | The results log: every test run with its command, outcome and timing, and the disposal of every scenario. |
 | `results/*.txt` | Trimmed logs of every build and test run, including the failed iterations. |
 | `scripts/reproduce.sh` | Portable reproduction: clone, parameters (downloaded and hash-verified), zkir CLIs, test artifacts, unit suites, strict controls, scenarios. Stages can be run individually. |

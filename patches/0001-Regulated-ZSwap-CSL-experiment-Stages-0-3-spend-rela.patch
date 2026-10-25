@@ -1,7 +1,7 @@
 From 850fb6020b4e02d52e7162d7335017d50ecf30a0 Mon Sep 17 00:00:00 2001
 From: Jalal Hannan <jalal.hannan@midnight.foundation>
 Date: Sun, 25 Oct 2026 16:45:16 +0000
-Subject: [PATCH 1/6] Regulated ZSwap CSL experiment: Stages 0-3 (spend
+Subject: [PATCH 1/7] Regulated ZSwap CSL experiment: Stages 0-3 (spend
  relation, gate, ledger matching)
 
 Experiment branch at fa995fa (alexshielded/custom-spend-logic).

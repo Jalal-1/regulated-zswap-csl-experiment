@@ -1,0 +1,192 @@
+From 6ff98056dddf1035d864a950f9e2639a2957c4ee Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 25 Oct 2026 21:53:58 +0000
+Subject: [PATCH 7/7] CI: fix the workflow parse error, the wasm call site and
+ clippy lints
+
+- .github/workflows/csl-proving.yml: quote a step name that contained
+  ": " (the YAML parser rejected the file, so the real-proving job never
+  started); build the coin-structure unit test in release like the other
+  steps so the job compiles one profile.
+- ledger-wasm/src/zswap_wasm.rs: pass the `derivation` argument (`None`)
+  to `Input::new_contract_owned`. The signature gained it in the first
+  experiment commit and the wasm build had been failing since.
+- zkir/src/csl_whitelist.rs, ledger/tests/csl_*.rs: satisfy clippy under
+  the upstream `-D warnings` flags (manual_is_multiple_of,
+  useless_conversion, err_expect, needless_late_init). No behavioural
+  change; `cargo clippy --all-targets --workspace --all-features` with the
+  upstream allow-list passes on rustc 1.97.0.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Q9CJgdhDhwqKR5eCeFM2VG
+---
+ .github/workflows/csl-proving.yml      |  4 ++--
+ ledger-wasm/src/zswap_wasm.rs          |  9 ++++++++-
+ ledger/tests/csl_baseline.rs           |  6 ++----
+ ledger/tests/csl_gate_layout.rs        | 12 ++++++------
+ ledger/tests/csl_regression.rs         |  3 +--
+ ledger/tests/csl_regulated_transfer.rs |  9 +++------
+ zkir/src/csl_whitelist.rs              |  2 +-
+ 7 files changed, 23 insertions(+), 22 deletions(-)
+
+diff --git a/.github/workflows/csl-proving.yml b/.github/workflows/csl-proving.yml
+index 401747af..a6619748 100644
+--- a/.github/workflows/csl-proving.yml
++++ b/.github/workflows/csl-proving.yml
+@@ -108,7 +108,7 @@ jobs:
+ 
+       - name: Unit suites touched by the change
+         run: |
+-          cargo test -p midnight-coin-structure custom_spend
++          cargo test --release -p midnight-coin-structure custom_spend
+           cargo test --release -p midnight-zkir --lib
+           cargo test --release -p midnight-zkir --test zswap_spend
+           cargo test --release -p midnight-zkir --test zswap_spend_csl
+@@ -125,7 +125,7 @@ jobs:
+       - name: Regression suite (gate route authentication, hiding binding, protected-token configuration, historical layouts)
+         run: cargo test --release -p midnight-ledger-v10 --features proving --test csl_regression -- --nocapture --test-threads=1
+ 
+-      - name: Record run metadata (part 2: artifact hashes)
++      - name: "Record run metadata (part 2, artifact hashes)"
+         if: always()
+         run: |
+           {
+diff --git a/ledger-wasm/src/zswap_wasm.rs b/ledger-wasm/src/zswap_wasm.rs
+index 4fd7c29e..91bc7370 100644
+--- a/ledger-wasm/src/zswap_wasm.rs
++++ b/ledger-wasm/src/zswap_wasm.rs
+@@ -414,7 +414,14 @@ impl ZswapInput {
+         let coin = value_to_qualified_shielded_coininfo(coin)?;
+         let addr = from_hex_ser(contract)?;
+         Ok(ZswapInput(ZswapInputTypes::UnprovenInput(
+-            zswap::Input::new_contract_owned(&mut OsRng, &coin, segment, addr, &state.0.coin_coms)?,
++            zswap::Input::new_contract_owned(
++                &mut OsRng,
++                &coin,
++                segment,
++                addr,
++                &state.0.coin_coms,
++                None,
++            )?,
+         )))
+     }
+ 
+diff --git a/ledger/tests/csl_baseline.rs b/ledger/tests/csl_baseline.rs
+index 401955b8..69698065 100644
+--- a/ledger/tests/csl_baseline.rs
++++ b/ledger/tests/csl_baseline.rs
+@@ -236,8 +236,7 @@ async fn csl_baseline_corrupted_spend_proof_is_rejected() {
+     });
+     let err = bad
+         .well_formed(&state.ledger, WellFormedStrictness::default(), state.time)
+-        .err()
+-        .expect("corrupted proof must be rejected");
++        .expect_err("corrupted proof must be rejected");
+     assert_invalid_proof(err);
+     assert!(state.ledger.zswap.nullifiers.get(&nullifier).is_none());
+ }
+@@ -251,8 +250,7 @@ async fn csl_baseline_altered_statement_is_rejected() {
+     });
+     let err = bad
+         .well_formed(&state.ledger, WellFormedStrictness::default(), state.time)
+-        .err()
+-        .expect("altered statement must be rejected");
++        .expect_err("altered statement must be rejected");
+     assert_invalid_proof(err);
+     assert!(state.ledger.zswap.nullifiers.get(&nullifier).is_none());
+ }
+diff --git a/ledger/tests/csl_gate_layout.rs b/ledger/tests/csl_gate_layout.rs
+index 7465c32c..25d0fc07 100644
+--- a/ledger/tests/csl_gate_layout.rs
++++ b/ledger/tests/csl_gate_layout.rs
+@@ -76,9 +76,9 @@ fn print_gate_program_layout() {
+     let binding: Fr = Fr::from(0x5555u64);
+     let claim_auth: Vec<Op<ResultModeVerify, InMemoryDB>> = vec![
+         Op::Swap { n: 0 },
+-        Op::Idx { cached: true, push_path: true, path: vec![Key::Value(AlignedValue::from(9u8).into())].into() },
+-        Op::Push { storage: false, value: StateValue::Cell(Sp::new(AlignedValue::from(binding).into())).into() },
+-        Op::Push { storage: false, value: StateValue::Null.into() },
++        Op::Idx { cached: true, push_path: true, path: vec![Key::Value(AlignedValue::from(9u8))].into() },
++        Op::Push { storage: false, value: StateValue::Cell(Sp::new(AlignedValue::from(binding))) },
++        Op::Push { storage: false, value: StateValue::Null },
+         Op::Ins { cached: true, n: 2 },
+         Op::Swap { n: 0 },
+     ];
+@@ -86,9 +86,9 @@ fn print_gate_program_layout() {
+     let cm: [u8; 32] = [0xCD; 32];
+     let claim_cov: Vec<Op<ResultModeVerify, InMemoryDB>> = vec![
+         Op::Swap { n: 0 },
+-        Op::Idx { cached: true, push_path: true, path: vec![Key::Value(AlignedValue::from(10u8).into())].into() },
+-        Op::Push { storage: false, value: StateValue::Cell(Sp::new(AlignedValue::from(cm).into())).into() },
+-        Op::Push { storage: false, value: StateValue::Null.into() },
++        Op::Idx { cached: true, push_path: true, path: vec![Key::Value(AlignedValue::from(10u8))].into() },
++        Op::Push { storage: false, value: StateValue::Cell(Sp::new(AlignedValue::from(cm))) },
++        Op::Push { storage: false, value: StateValue::Null },
+         Op::Ins { cached: true, n: 2 },
+         Op::Swap { n: 0 },
+     ];
+diff --git a/ledger/tests/csl_regression.rs b/ledger/tests/csl_regression.rs
+index 6a72f79a..d6872dc8 100644
+--- a/ledger/tests/csl_regression.rs
++++ b/ledger/tests/csl_regression.rs
+@@ -136,9 +136,8 @@ async fn omitted_gate_call_is_rejected() {
+ async fn approved_transfer_still_succeeds() {
+     let mut f = fixture(0x106).await;
+     let coin = regulated_coins(&f.state, &f.gate)[0];
+-    let nullifier;
+     let tx = regulated_transfer_tx(&f.state, &mut f.rng, &f.gate, &f.alice, &f.bob, &coin, &Default::default());
+-    nullifier = first_input_nullifier(&tx);
++    let nullifier = first_input_nullifier(&tx);
+     let proven = pay_and_prove(&mut f.state, &mut f.rng, &f.resolver, tx).await.expect("approved transfer must prove");
+     let result = f.state.apply(&proven, WellFormedStrictness::default()).expect("must be well-formed");
+     assert!(matches!(result, midnight_ledger::semantics::TransactionResult::Success(_)), "got {result:?}");
+diff --git a/ledger/tests/csl_regulated_transfer.rs b/ledger/tests/csl_regulated_transfer.rs
+index a4f1c488..70d17cb6 100644
+--- a/ledger/tests/csl_regulated_transfer.rs
++++ b/ledger/tests/csl_regulated_transfer.rs
+@@ -104,8 +104,7 @@ async fn t06_omitted_gate_call_is_rejected() {
+         .expect("the spend itself proves; the policy is enforced by the ledger");
+     let err = proven
+         .well_formed(&f.state.ledger, WellFormedStrictness::default(), f.state.time)
+-        .err()
+-        .expect("must be rejected");
++        .expect_err("must be rejected");
+     assert!(
+         matches!(err, MalformedTransaction::EffectsCheckFailure(EffectsCheckError::SpendAuthorizationsNEClaimed { .. })),
+         "unexpected rejection: {err:?}"
+@@ -128,8 +127,7 @@ async fn t07_substituted_sender_is_rejected() {
+         .expect("the gate accepts Bob as a sender; the mismatch is the ledger's to catch");
+     let err = proven
+         .well_formed(&f.state.ledger, WellFormedStrictness::default(), f.state.time)
+-        .err()
+-        .expect("must be rejected");
++        .expect_err("must be rejected");
+     assert!(
+         matches!(err, MalformedTransaction::EffectsCheckFailure(EffectsCheckError::SpendAuthorizationsNEClaimed { .. })),
+         "unexpected rejection: {err:?}"
+@@ -149,8 +147,7 @@ async fn t08_output_to_unchecked_recipient_is_rejected() {
+         .expect("the gate's own statement is consistent; the coverage mismatch is the ledger's to catch");
+     let err = proven
+         .well_formed(&f.state.ledger, WellFormedStrictness::default(), f.state.time)
+-        .err()
+-        .expect("must be rejected");
++        .expect_err("must be rejected");
+     assert!(
+         matches!(err, MalformedTransaction::EffectsCheckFailure(EffectsCheckError::OutputCoverageNESegmentCommitments { .. })),
+         "unexpected rejection: {err:?}"
+diff --git a/zkir/src/csl_whitelist.rs b/zkir/src/csl_whitelist.rs
+index 7f15a38a..941a8776 100644
+--- a/zkir/src/csl_whitelist.rs
++++ b/zkir/src/csl_whitelist.rs
+@@ -111,7 +111,7 @@ impl Whitelist {
+         let mut path = [(Fr::from(0), false); WHITELIST_DEPTH];
+         let mut i = index;
+         for (level, slot) in path.iter_mut().enumerate() {
+-            let goes_left = i % 2 == 0;
++            let goes_left = i.is_multiple_of(2);
+             let sibling = levels[level][if goes_left { i + 1 } else { i - 1 }];
+             *slot = (sibling, goes_left);
+             i /= 2;
+-- 
+2.43.0
+
