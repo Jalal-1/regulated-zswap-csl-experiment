@@ -85,7 +85,12 @@ impl TokenDerivation {
 }
 
 /// Poseidon domain separator of the CSL policy binding.
-pub const CSL_BIND_DOMAIN_SEP: &[u8; 21] = b"midnight:csl-bind[v1]";
+///
+/// `[v2]`: the hiding binding. The preimage commits to the spent token type and
+/// to fresh per-spend randomness `rho`, and no longer to the gate and entry
+/// point, which are authenticated as explicit public inputs of the spend
+/// statement instead (see `zswap::verify`).
+pub const CSL_BIND_DOMAIN_SEP: &[u8; 21] = b"midnight:csl-bind[v2]";
 
 /// Field constant for [`CSL_BIND_DOMAIN_SEP`].
 pub fn csl_bind_domain() -> transient_crypto::curve::Fr {
@@ -102,20 +107,32 @@ pub fn fr_pair(bytes: &[u8; 32]) -> [transient_crypto::curve::Fr; 2] {
     ]
 }
 
-/// The policy binding a guarded spend exposes in its first public input:
-/// `Poseidon(DOM, nullifier, sender, gate, ep_hash)`, where `sender` is the
-/// coin public key (user-owned coins) or the owning contract address.
+/// The hiding policy binding a guarded spend exposes in its first public input:
+/// `Poseidon(DOM, nullifier, sender, token_type, rho)`, where `sender` is the
+/// coin public key (user-owned coins) or the owning contract address, and `rho`
+/// is fresh, uniformly random field element drawn by the wallet once per spend.
+///
+/// `rho` is a private witness of both the spend proof and the gate proof; it is
+/// never serialized, never a public input, never written to contract effects
+/// and never logged. The nullifier is public and the token type is narrowed by
+/// the (public) gate address, so without `rho` an observer who knows a
+/// candidate sender key could recompute the binding and recognise that
+/// sender's spends; with a secret uniform `rho` the value is a hiding
+/// commitment and reveals nothing about the sender or type under the
+/// standard assumption that Poseidon is a hiding commitment in its randomness.
+/// What stays public is unchanged: the nullifier, the gate and entry point,
+/// and the fact that the input is guarded.
 pub fn csl_policy_binding(
     nullifier: &crate::coin::Nullifier,
     sender: &HashOutput,
-    gate: &ContractAddress,
-    ep_hash: &HashOutput,
+    token_type: &crate::coin::ShieldedTokenType,
+    rho: transient_crypto::curve::Fr,
 ) -> transient_crypto::curve::Fr {
     let mut preimage = vec![csl_bind_domain()];
     preimage.extend(fr_pair(&nullifier.0.0));
     preimage.extend(fr_pair(&sender.0));
-    preimage.extend(fr_pair(&gate.0.0));
-    preimage.extend(fr_pair(&ep_hash.0));
+    preimage.extend(fr_pair(&token_type.0.0));
+    preimage.push(rho);
     transient_crypto::hash::transient_hash(&preimage)
 }
 
@@ -189,6 +206,25 @@ mod tests {
         .map(|rule| addr.custom_shielded_token_type(domain_sep, rule))
         .collect::<std::collections::HashSet<_>>();
         assert_eq!(types.len(), 4);
+    }
+
+    /// The hiding binding depends on `rho` and on the token type: the same
+    /// nullifier and sender under two different blindings, or under two types,
+    /// give unrelated bindings (so a known key cannot be recognised without `rho`).
+    #[test]
+    fn policy_binding_is_blinded_and_type_bound() {
+        use crate::coin::{Nullifier, ShieldedTokenType};
+        use transient_crypto::curve::Fr;
+        let nullifier = Nullifier(HashOutput([5u8; 32]));
+        let sender = HashOutput([6u8; 32]);
+        let t1 = ShieldedTokenType(HashOutput([7u8; 32]));
+        let t2 = ShieldedTokenType(HashOutput([8u8; 32]));
+        let b1 = csl_policy_binding(&nullifier, &sender, &t1, Fr::from(11));
+        let b2 = csl_policy_binding(&nullifier, &sender, &t1, Fr::from(12));
+        let b3 = csl_policy_binding(&nullifier, &sender, &t2, Fr::from(11));
+        assert_ne!(b1, b2, "different randomness must change the binding");
+        assert_ne!(b1, b3, "a different token type must change the binding");
+        assert_eq!(b1, csl_policy_binding(&nullifier, &sender, &t1, Fr::from(11)), "deterministic for equal inputs");
     }
 
     /// Pins the exact byte layout the CSL spend circuit re-derives in-circuit:

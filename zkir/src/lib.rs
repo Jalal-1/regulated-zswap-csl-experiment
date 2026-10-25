@@ -25,6 +25,8 @@ pub mod csl_gate;
 pub mod csl_whitelist;
 pub mod zswap_spend;
 pub mod zswap_spend_csl;
+/// Historical (superseded) CSL spend relation; test evidence only, never dispatched.
+pub mod zswap_spend_csl_v1_historical;
 
 pub use ir::{Instruction, IrMinorVersion, IrSource};
 pub use ir_vm::Preprocessed;

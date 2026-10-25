@@ -17,6 +17,7 @@ use crate::error::MalformedOffer;
 #[cfg(any(feature = "proof-verifying", test))]
 use crate::filter_invalid;
 use crate::structure::*;
+use coin_structure::custom_spend::fr_pair;
 #[cfg(feature = "proof-verifying")]
 use base_crypto::fab::AlignedValue;
 #[cfg(test)]
@@ -212,8 +213,8 @@ impl<D: DB> Input<Proof, D> {
             (Fr, Fr),
             self.value_commitment.0
         ));
-        // CSL: a guarded input carries its policy binding in the proof's first
-        // public input; an unguarded input must have proven `0` there.
+        // CSL: a guarded input carries its (hiding) policy binding in the proof's
+        // first public input; an unguarded input must have proven `0` there.
         let binding: Fr = self
             .policy
             .as_ref()
@@ -223,6 +224,24 @@ impl<D: DB> Input<Proof, D> {
         for op in with_outputs(prog.into_iter(), [true.into(), segment.into()].into_iter()) {
             op.field_repr(&mut statement);
         }
+        // CSL: the authenticated route. The proof's five trailing public inputs
+        // are the mode (0 = Empty, 1 = GateContract) and the gate address and
+        // entry point the circuit derived the token type from. They are filled
+        // here from the input's public `policy`, so the routing fields the ledger
+        // matches on are authenticated by the proof: repointing `policy.gate` or
+        // `policy.entry_point_hash` at another contract or entry point, or
+        // omitting `policy` on a guarded coin, fails verification. The mode is
+        // explicit; nothing is inferred from the binding being zero.
+        let (mode, route_gate, route_ep): (Fr, [Fr; 2], [Fr; 2]) = match self.policy.as_ref() {
+            Some(p) => {
+                let p = p.deref();
+                (1.into(), fr_pair(&p.gate.0.0), fr_pair(&p.entry_point_hash.0))
+            }
+            None => (0.into(), [0.into(); 2], [0.into(); 2]),
+        };
+        statement.push(mode);
+        statement.extend(route_gate);
+        statement.extend(route_ep);
         SPEND_VK
             .verify(
                 &transient_crypto_old::proofs::PARAMS_VERIFIER,

@@ -15,16 +15,30 @@
 //! registered as contract operations (`v2` verifier keys, `ProofVersioned::V2`).
 //!
 //! Contract state (an array of cells): `[root: Fr, token_type: Bytes<32>, admin: Fr]`.
+//! `token_type` names the single protected asset. It is zero at deployment and
+//! is written exactly once, by `init`.
 //!
-//! * `authorize` (one call per segment that spends the regulated type) reads
+//! * `init` (administrator, one time) reads `admin`, reads `token_type`
+//!   *claiming it is still zero* (so the ledger's replay of the transcript fails
+//!   once it has been set), writes `root` and `token_type`, and proves knowledge
+//!   of the administrator secret. It cannot be repeated to retarget the gate.
+//! * `update_root` (administrator) reads `admin` and writes `root` only; it
+//!   cannot touch `token_type`.
+//! * `authorize` (one call per segment that spends the protected type) reads
 //!   `root` and `token_type`, claims the policy binding of the guarded input
 //!   (effects index 9) and every output commitment of the segment (effects
-//!   index 10), and proves: the sender's key is in the whitelist under `root`;
-//!   the binding is `Poseidon(DOM_BIND, nullifier, sender, gate, ep_hash)` for
-//!   that sender; every claimed output commitment opens to a user-owned coin,
-//!   and if its type is `token_type` the recipient's key is in the whitelist.
-//! * `update_root` (administrator) reads `admin`, writes `root` and
-//!   `token_type`, and proves knowledge of the administrator secret.
+//!   index 10), and proves: `token_type` is initialized (non-zero); the sender's
+//!   key is in the whitelist under `root`; the binding is
+//!   `Poseidon(DOM_BIND, nullifier, sender, token_type, rho)` for that sender
+//!   and for the *cell's* token type. The ledger requires this value to equal
+//!   the binding inside the spend proof, which commits to the *spent coin's*
+//!   type, so the gate can only authorize spends of its own protected asset;
+//!   a second asset pointed at this gate obtains no authorization at all rather
+//!   than sender-only checks. Every claimed output commitment opens to a
+//!   user-owned coin, and if its type is `token_type` the recipient's key is in
+//!   the whitelist. The gate address and entry point are not in the binding:
+//!   the spend statement authenticates them directly and the ledger matches on
+//!   them (see `zswap::verify`).
 //!
 //! A contract call's public inputs are, in order, the transaction binding
 //! input, the communication commitment and the field representation of the
@@ -64,9 +78,12 @@ pub const KEY_PREFIX: &str = "midnight/csl-gate/";
 pub const AUTHORIZE_KEY_LOCATION: &str = "midnight/csl-gate/authorize";
 /// Key location of the `update_root` entry point.
 pub const UPDATE_ROOT_KEY_LOCATION: &str = "midnight/csl-gate/update-root";
+/// Key location of the one-time `init` entry point.
+pub const INIT_KEY_LOCATION: &str = "midnight/csl-gate/init";
 /// Entry point names as they appear in the contract's operation map.
 pub const AUTHORIZE_ENTRY_POINT: &[u8] = b"authorize";
 pub const UPDATE_ROOT_ENTRY_POINT: &[u8] = b"update_root";
+pub const INIT_ENTRY_POINT: &[u8] = b"init";
 
 /// Outputs covered by one `authorize` call in the first supported shape.
 pub const N_OUTPUTS: usize = 1;
@@ -176,10 +193,24 @@ pub fn authorize_template() -> Vec<Pi> {
     t
 }
 
-/// The transcript template of `update_root`.
+/// The transcript template of `update_root`: the administrator proof and a
+/// write of `root` only. The protected token type is not touched.
 pub fn update_root_template() -> Vec<Pi> {
     let mut t = Vec::new();
     t.extend(read_fr(CELL_ADMIN, Pi::Admin));
+    t.extend(write_fr(CELL_ROOT, Pi::NewRoot));
+    t
+}
+
+/// The transcript template of `init`: the administrator proof, a read of
+/// `token_type` that claims the all-zero (uninitialized) value, and writes of
+/// `root` and `token_type`. The claimed zero read is what makes `init` one-time:
+/// the ledger replays the transcript against the contract's current state and
+/// rejects it with a read mismatch once the cell holds a type.
+pub fn init_template() -> Vec<Pi> {
+    let mut t = Vec::new();
+    t.extend(read_fr(CELL_ADMIN, Pi::Admin));
+    t.extend(read_bytes32(CELL_TOKEN_TYPE, Pi::C(0), Pi::C(0)));
     t.extend(write_fr(CELL_ROOT, Pi::NewRoot));
     t.extend(write_bytes32(CELL_TOKEN_TYPE, Pi::NewTokenHi, Pi::NewTokenLo));
     t
@@ -220,14 +251,23 @@ pub struct AuthorizeWitness {
     pub sender_pk: [Fr; 2],
     pub sender_r: Fr,
     pub sender_path: [(Fr, bool); WHITELIST_DEPTH],
-    pub gate_address: [Fr; 2],
-    pub ep_hash: [Fr; 2],
+    /// The spend's blinding, shared privately by the wallet with this proof.
+    pub rho: Fr,
     pub outputs: Vec<OutputWitness>,
 }
 
 /// Witness of `update_root`.
 #[derive(Clone, Debug)]
 pub struct UpdateRootWitness {
+    pub binding_input: Fr,
+    pub communication_commitment: Fr,
+    pub admin_secret: Fr,
+    pub new_root: Fr,
+}
+
+/// Witness of the one-time `init`.
+#[derive(Clone, Debug)]
+pub struct InitWitness {
     pub binding_input: Fr,
     pub communication_commitment: Fr,
     pub admin_secret: Fr,
@@ -257,10 +297,13 @@ fn fields_to_path(fields: &[Fr]) -> Result<[(Fr, bool); WHITELIST_DEPTH], anyhow
     Ok(path)
 }
 
-/// Private-transcript length of `authorize`.
-pub const AUTHORIZE_PRIVATE_LEN: usize = 3 + 4 + 1 + 2 * WHITELIST_DEPTH + 4 + N_OUTPUTS * (7 + 1 + 2 * WHITELIST_DEPTH);
+/// Private-transcript length of `authorize`:
+/// root, token type, nullifier, sender key, sender randomness, sender path, rho, outputs.
+pub const AUTHORIZE_PRIVATE_LEN: usize = 3 + 4 + 1 + 2 * WHITELIST_DEPTH + 1 + N_OUTPUTS * (8 + 2 * WHITELIST_DEPTH);
 /// Private-transcript length of `update_root`.
-pub const UPDATE_ROOT_PRIVATE_LEN: usize = 4;
+pub const UPDATE_ROOT_PRIVATE_LEN: usize = 2;
+/// Private-transcript length of `init`.
+pub const INIT_PRIVATE_LEN: usize = 4;
 
 impl AuthorizeWitness {
     /// The private transcript carried by the proof preimage.
@@ -271,8 +314,7 @@ impl AuthorizeWitness {
         v.extend(self.sender_pk);
         v.push(self.sender_r);
         v.extend(path_to_fields(&self.sender_path));
-        v.extend(self.gate_address);
-        v.extend(self.ep_hash);
+        v.push(self.rho);
         for o in &self.outputs {
             v.extend(o.nonce);
             v.extend(o.token_type);
@@ -306,8 +348,7 @@ impl AuthorizeWitness {
         let pk = take(2);
         let sender_r = take(1)[0];
         let sender_path = fields_to_path(&take(2 * WHITELIST_DEPTH))?;
-        let gate = take(2);
-        let ep = take(2);
+        let rho = take(1)[0];
         let mut outputs = Vec::with_capacity(N_OUTPUTS);
         for _ in 0..N_OUTPUTS {
             let nonce = take(2);
@@ -334,8 +375,7 @@ impl AuthorizeWitness {
             sender_pk: [pk[0], pk[1]],
             sender_r,
             sender_path,
-            gate_address: [gate[0], gate[1]],
-            ep_hash: [ep[0], ep[1]],
+            rho,
             outputs,
         })
     }
@@ -343,7 +383,7 @@ impl AuthorizeWitness {
 
 impl UpdateRootWitness {
     pub fn private_transcript(&self) -> Vec<Fr> {
-        vec![self.admin_secret, self.new_root, self.new_token_type[0], self.new_token_type[1]]
+        vec![self.admin_secret, self.new_root]
     }
 
     pub fn from_preimage(preimage: &ProofPreimage) -> Result<Self, anyhow::Error> {
@@ -356,6 +396,29 @@ impl UpdateRootWitness {
             .map(|(c, _)| c)
             .ok_or_else(|| anyhow::anyhow!("gate call preimage must carry a communication commitment"))?;
         Ok(UpdateRootWitness {
+            binding_input: preimage.binding_input,
+            communication_commitment: cc,
+            admin_secret: p[0],
+            new_root: p[1],
+        })
+    }
+}
+
+impl InitWitness {
+    pub fn private_transcript(&self) -> Vec<Fr> {
+        vec![self.admin_secret, self.new_root, self.new_token_type[0], self.new_token_type[1]]
+    }
+
+    pub fn from_preimage(preimage: &ProofPreimage) -> Result<Self, anyhow::Error> {
+        let p = &preimage.private_transcript;
+        if p.len() != INIT_PRIVATE_LEN {
+            anyhow::bail!("init preimage has {} private elements, expected {}", p.len(), INIT_PRIVATE_LEN);
+        }
+        let cc = preimage
+            .communications_commitment
+            .map(|(c, _)| c)
+            .ok_or_else(|| anyhow::anyhow!("gate call preimage must carry a communication commitment"))?;
+        Ok(InitWitness {
             binding_input: preimage.binding_input,
             communication_commitment: cc,
             admin_secret: p[0],
@@ -505,10 +568,9 @@ impl Relation for GateAuthorize {
         let sender_pk = assign2(layouter, w.map(|w| w.sender_pk))?;
         let sender_r = assign(layouter, w.map(|w| w.sender_r))?;
         let sender_path = assign_path(layouter, w.map(|w| w.sender_path))?;
-        let gate = assign2(layouter, w.map(|w| w.gate_address))?;
-        let ep = assign2(layouter, w.map(|w| w.ep_hash))?;
+        let rho = assign(layouter, w.map(|w| w.rho))?;
 
-        for [hi, lo] in [&token_type, &nullifier, &sender_pk, &gate, &ep] {
+        for [hi, lo] in [&token_type, &nullifier, &sender_pk] {
             check_bytes32(std, layouter, hi, lo)?;
         }
 
@@ -522,7 +584,25 @@ impl Relation for GateAuthorize {
         let sender_root = fold_path(std, layouter, &sender_leaf, &sender_path)?;
         std.assert_equal(layouter, &sender_root, &root)?;
 
-        // The policy binding for exactly this sender and nullifier.
+        // The gate must be initialized: an all-zero token-type cell authorizes
+        // nothing (no real coin has the all-zero guarded type anyway, but the
+        // failure is made explicit here).
+        let tt_hi_zero = {
+            let b = std.is_zero(layouter, &token_type[0])?;
+            std.convert(layouter, &b)?
+        };
+        let tt_lo_zero = {
+            let b = std.is_zero(layouter, &token_type[1])?;
+            std.convert(layouter, &b)?
+        };
+        let uninitialized = cond_select(std, layouter, &tt_hi_zero, &tt_lo_zero, &zero)?;
+        std.assert_equal(layouter, &uninitialized, &zero)?;
+
+        // The hiding policy binding for exactly this sender and nullifier, the
+        // gate's own protected token type (the cell just read, which the ledger
+        // replays), and the spend's blinding `rho`. The ledger requires it to
+        // equal the spend proof's binding, which commits to the spent coin's
+        // type, so only coins of the protected type can ever be authorized here.
         let dom_bind: Assigned = std.assign_fixed(layouter, cvt(bind_domain().0))?;
         let binding = std.poseidon(
             layouter,
@@ -532,10 +612,9 @@ impl Relation for GateAuthorize {
                 nullifier[1].clone(),
                 sender_pk[0].clone(),
                 sender_pk[1].clone(),
-                gate[0].clone(),
-                gate[1].clone(),
-                ep[0].clone(),
-                ep[1].clone(),
+                token_type[0].clone(),
+                token_type[1].clone(),
+                rho,
             ],
         )?;
 
@@ -660,9 +739,6 @@ impl Relation for GateUpdateRoot {
         let cc = assign(layouter, w.map(|w| w.communication_commitment))?;
         let secret = assign(layouter, w.map(|w| w.admin_secret))?;
         let new_root = assign(layouter, w.map(|w| w.new_root))?;
-        let tt_hi = assign(layouter, w.map(|w| w.new_token_type[0]))?;
-        let tt_lo = assign(layouter, w.map(|w| w.new_token_type[1]))?;
-        check_bytes32(std, layouter, &tt_hi, &tt_lo)?;
         let dom: Assigned = std.assign_fixed(layouter, cvt(admin_domain().0))?;
         let admin = std.poseidon(layouter, &[dom, secret])?;
 
@@ -670,8 +746,6 @@ impl Relation for GateUpdateRoot {
         let body = emit_template(std, layouter, &template, |pi| match pi {
             Pi::Admin => admin.clone(),
             Pi::NewRoot => new_root.clone(),
-            Pi::NewTokenHi => tt_hi.clone(),
-            Pi::NewTokenLo => tt_lo.clone(),
             _ => unreachable!("hole kind not used by update_root"),
         })?;
         let mut pis = vec![binding_input, cc];
@@ -706,6 +780,249 @@ impl Relation for GateUpdateRoot {
     }
 }
 
+/// The one-time `init` relation.
+#[derive(Clone, Debug, Default)]
+pub struct GateInit;
+
+impl Relation for GateInit {
+    type Instance = Vec<OldScalar>;
+    type Witness = InitWitness;
+
+    fn format_instance(instance: &Self::Instance) -> Result<Vec<OldScalar>, Error> {
+        Ok(instance.clone())
+    }
+
+    fn circuit(
+        &self,
+        std: &ZkStdLib,
+        layouter: &mut impl Layouter<OldScalar>,
+        _instance: Value<Self::Instance>,
+        witness: Value<Self::Witness>,
+    ) -> Result<(), Error> {
+        let w = witness.as_ref();
+        let assign = |layouter: &mut _, v: Value<Fr>| -> Result<Assigned, Error> {
+            std.assign(layouter, v.map(|f| cvt(f.0)))
+        };
+        let binding_input = assign(layouter, w.map(|w| w.binding_input))?;
+        let cc = assign(layouter, w.map(|w| w.communication_commitment))?;
+        let secret = assign(layouter, w.map(|w| w.admin_secret))?;
+        let new_root = assign(layouter, w.map(|w| w.new_root))?;
+        let tt_hi = assign(layouter, w.map(|w| w.new_token_type[0]))?;
+        let tt_lo = assign(layouter, w.map(|w| w.new_token_type[1]))?;
+        check_bytes32(std, layouter, &tt_hi, &tt_lo)?;
+        // The protected type must be a real (non-zero) type, or the gate would
+        // stay in its uninitialized state while claiming to be set.
+        let zero: Assigned = std.assign_fixed(layouter, OldScalar::from(0))?;
+        let hi_zero = {
+            let b = std.is_zero(layouter, &tt_hi)?;
+            std.convert(layouter, &b)?
+        };
+        let lo_zero = {
+            let b = std.is_zero(layouter, &tt_lo)?;
+            std.convert(layouter, &b)?
+        };
+        let both_zero = cond_select(std, layouter, &hi_zero, &lo_zero, &zero)?;
+        std.assert_equal(layouter, &both_zero, &zero)?;
+        let dom: Assigned = std.assign_fixed(layouter, cvt(admin_domain().0))?;
+        let admin = std.poseidon(layouter, &[dom, secret])?;
+
+        let template = init_template();
+        let body = emit_template(std, layouter, &template, |pi| match pi {
+            Pi::Admin => admin.clone(),
+            Pi::NewRoot => new_root.clone(),
+            Pi::NewTokenHi => tt_hi.clone(),
+            Pi::NewTokenLo => tt_lo.clone(),
+            _ => unreachable!("hole kind not used by init"),
+        })?;
+        let mut pis = vec![binding_input, cc];
+        pis.extend(body);
+        pis.iter()
+            .try_for_each(|pi| std.constrain_as_public_input(layouter, pi))
+    }
+
+    fn used_chips(&self) -> ZkStdLibArch {
+        ZkStdLibArch {
+            jubjub: false,
+            poseidon: true,
+            sha2_256: false,
+            sha2_512: false,
+            sha3_256: false,
+            keccak_256: false,
+            blake2b: false,
+            nr_pow2range_cols: 1,
+            secp256k1: false,
+            bls12_381: false,
+            base64: false,
+            automaton: false,
+        }
+    }
+
+    fn write_relation<W: std::io::Write>(&self, _writer: &mut W) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn read_relation<R: std::io::Read>(_reader: &mut R) -> std::io::Result<Self> {
+        Ok(GateInit)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Adversarial test infrastructure: a malicious "permissive" gate.
+//
+// This relation is NEVER embedded, resolved, or reachable on any production
+// path. It exists so the regulated-ZSwap regression suite can deploy a real,
+// attacker-controlled contract that emits the exact `authorize` transcript
+// (reading its own cells and claiming a spend authorization plus output
+// coverage) WITHOUT proving whitelist membership or that the claimed binding
+// is correct. It is the concrete "arbitrary claiming contract" the ledger must
+// refuse to let redirect authorization. See `ledger/tests/csl_regression.rs`.
+// ---------------------------------------------------------------------------
+
+/// Key location of the permissive (malicious) gate's authorize entry point.
+pub const PERMISSIVE_KEY_LOCATION: &str = "midnight/csl-gate/authorize-permissive";
+
+/// Witness of the permissive gate: the values it rubber-stamps, with no proof
+/// that any of them is correct.
+#[derive(Clone, Debug)]
+pub struct PermissiveWitness {
+    pub binding_input: Fr,
+    pub communication_commitment: Fr,
+    pub root: Fr,
+    pub token_type: [Fr; 2],
+    pub binding: Fr,
+    pub commitments: Vec<[Fr; 2]>,
+}
+
+/// Private-transcript length of the permissive gate.
+pub const PERMISSIVE_PRIVATE_LEN: usize = 1 + 2 + 1 + N_OUTPUTS * 2;
+
+impl PermissiveWitness {
+    pub fn private_transcript(&self) -> Vec<Fr> {
+        let mut v = vec![self.root];
+        v.extend(self.token_type);
+        v.push(self.binding);
+        for c in &self.commitments {
+            v.extend(*c);
+        }
+        debug_assert_eq!(v.len(), PERMISSIVE_PRIVATE_LEN);
+        v
+    }
+
+    pub fn from_preimage(preimage: &ProofPreimage) -> Result<Self, anyhow::Error> {
+        let p = &preimage.private_transcript;
+        if p.len() != PERMISSIVE_PRIVATE_LEN {
+            anyhow::bail!(
+                "permissive preimage has {} private elements, expected {}",
+                p.len(),
+                PERMISSIVE_PRIVATE_LEN
+            );
+        }
+        let cc = preimage
+            .communications_commitment
+            .map(|(c, _)| c)
+            .ok_or_else(|| anyhow::anyhow!("gate call preimage must carry a communication commitment"))?;
+        let mut i = 0;
+        let mut take = |n: usize| {
+            let s = &p[i..i + n];
+            i += n;
+            s.to_vec()
+        };
+        let root = take(1)[0];
+        let tt = take(2);
+        let binding = take(1)[0];
+        let mut commitments = Vec::with_capacity(N_OUTPUTS);
+        for _ in 0..N_OUTPUTS {
+            let c = take(2);
+            commitments.push([c[0], c[1]]);
+        }
+        Ok(PermissiveWitness {
+            binding_input: preimage.binding_input,
+            communication_commitment: cc,
+            root,
+            token_type: [tt[0], tt[1]],
+            binding,
+            commitments,
+        })
+    }
+}
+
+/// The permissive (malicious) gate relation: it emits exactly the `authorize`
+/// transcript but proves nothing about the values it claims.
+#[derive(Clone, Debug, Default)]
+pub struct GatePermissive;
+
+impl Relation for GatePermissive {
+    type Instance = Vec<OldScalar>;
+    type Witness = PermissiveWitness;
+
+    fn format_instance(instance: &Self::Instance) -> Result<Vec<OldScalar>, Error> {
+        Ok(instance.clone())
+    }
+
+    fn circuit(
+        &self,
+        std: &ZkStdLib,
+        layouter: &mut impl Layouter<OldScalar>,
+        _instance: Value<Self::Instance>,
+        witness: Value<Self::Witness>,
+    ) -> Result<(), Error> {
+        let w = witness.as_ref();
+        let assign = |layouter: &mut _, v: Value<Fr>| -> Result<Assigned, Error> {
+            std.assign(layouter, v.map(|f| cvt(f.0)))
+        };
+        let binding_input = assign(layouter, w.map(|w| w.binding_input))?;
+        let cc = assign(layouter, w.map(|w| w.communication_commitment))?;
+        let root = assign(layouter, w.map(|w| w.root))?;
+        let tt_hi = assign(layouter, w.map(|w| w.token_type[0]))?;
+        let tt_lo = assign(layouter, w.map(|w| w.token_type[1]))?;
+        let binding = assign(layouter, w.map(|w| w.binding))?;
+        let mut cms = Vec::with_capacity(N_OUTPUTS);
+        for i in 0..N_OUTPUTS {
+            let hi = assign(layouter, w.map(|w| w.commitments[i][0]))?;
+            let lo = assign(layouter, w.map(|w| w.commitments[i][1]))?;
+            cms.push((hi, lo));
+        }
+        let body = emit_template(std, layouter, &authorize_template(), |pi| match pi {
+            Pi::Root => root.clone(),
+            Pi::TokenHi => tt_hi.clone(),
+            Pi::TokenLo => tt_lo.clone(),
+            Pi::Binding => binding.clone(),
+            Pi::CmHi(i) => cms[i].0.clone(),
+            Pi::CmLo(i) => cms[i].1.clone(),
+            _ => unreachable!("hole kind not used by permissive gate"),
+        })?;
+        let mut pis = vec![binding_input, cc];
+        pis.extend(body);
+        pis.iter()
+            .try_for_each(|pi| std.constrain_as_public_input(layouter, pi))
+    }
+
+    fn used_chips(&self) -> ZkStdLibArch {
+        ZkStdLibArch {
+            jubjub: false,
+            poseidon: false,
+            sha2_256: false,
+            sha2_512: false,
+            sha3_256: false,
+            keccak_256: false,
+            blake2b: false,
+            nr_pow2range_cols: 1,
+            secp256k1: false,
+            bls12_381: false,
+            base64: false,
+            automaton: false,
+        }
+    }
+
+    fn write_relation<W: std::io::Write>(&self, _writer: &mut W) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn read_relation<R: std::io::Read>(_reader: &mut R) -> std::io::Result<Self> {
+        Ok(GatePermissive)
+    }
+}
+
 /// Keys of one gate relation, generated once per process.
 pub struct GateKeys<R: Relation> {
     pub k: u8,
@@ -715,6 +1032,8 @@ pub struct GateKeys<R: Relation> {
 
 static AUTHORIZE_KEYS: OnceLock<Arc<GateKeys<GateAuthorize>>> = OnceLock::new();
 static UPDATE_ROOT_KEYS: OnceLock<Arc<GateKeys<GateUpdateRoot>>> = OnceLock::new();
+static INIT_KEYS: OnceLock<Arc<GateKeys<GateInit>>> = OnceLock::new();
+static PERMISSIVE_KEYS: OnceLock<Arc<GateKeys<GatePermissive>>> = OnceLock::new();
 
 async fn gen_keys<R: Relation + Default>(
     params: &impl transient_crypto::proofs::ParamsProverProvider,
@@ -747,6 +1066,27 @@ pub async fn update_root_keys(
     Ok(UPDATE_ROOT_KEYS.get_or_init(|| Arc::new(keys)).clone())
 }
 
+pub async fn init_keys(
+    params: &impl transient_crypto::proofs::ParamsProverProvider,
+) -> Result<Arc<GateKeys<GateInit>>, anyhow::Error> {
+    if let Some(k) = INIT_KEYS.get() {
+        return Ok(k.clone());
+    }
+    let keys = gen_keys::<GateInit>(params).await?;
+    Ok(INIT_KEYS.get_or_init(|| Arc::new(keys)).clone())
+}
+
+/// Keys of the adversarial permissive gate (test infrastructure only).
+pub async fn permissive_keys(
+    params: &impl transient_crypto::proofs::ParamsProverProvider,
+) -> Result<Arc<GateKeys<GatePermissive>>, anyhow::Error> {
+    if let Some(k) = PERMISSIVE_KEYS.get() {
+        return Ok(k.clone());
+    }
+    let keys = gen_keys::<GatePermissive>(params).await?;
+    Ok(PERMISSIVE_KEYS.get_or_init(|| Arc::new(keys)).clone())
+}
+
 fn vk_bytes(vk: &MidnightVK) -> Result<Vec<u8>, anyhow::Error> {
     let vk = transient_crypto_old::proofs::VerifierKey::from(vk.clone());
     let mut bytes = Vec::new();
@@ -762,6 +1102,8 @@ pub async fn verifier_key_bytes(
     Ok(match key_location {
         AUTHORIZE_KEY_LOCATION => Some(vk_bytes(&authorize_keys(params).await?.vk)?),
         UPDATE_ROOT_KEY_LOCATION => Some(vk_bytes(&update_root_keys(params).await?.vk)?),
+        INIT_KEY_LOCATION => Some(vk_bytes(&init_keys(params).await?.vk)?),
+        PERMISSIVE_KEY_LOCATION => Some(vk_bytes(&permissive_keys(params).await?.vk)?),
         _ => None,
     })
 }
@@ -820,6 +1162,34 @@ pub async fn prove_from_preimage(
                 rng,
             )
             .map_err(|e| anyhow::anyhow!("gate update_root prove: {e}"))?
+        }
+        INIT_KEY_LOCATION => {
+            let witness = InitWitness::from_preimage(preimage)?;
+            let keys = init_keys(params).await?;
+            let params_k = transient_crypto_old::proofs::ParamsProverProvider::get_params(&V1Params(params), keys.k).await?;
+            midnight_zk_stdlib_v1::prove::<_, transient_crypto_old::proofs::TranscriptHash>(
+                params_k.as_ref(),
+                &keys.pk,
+                &GateInit,
+                &pis,
+                witness,
+                rng,
+            )
+            .map_err(|e| anyhow::anyhow!("gate init prove: {e}"))?
+        }
+        PERMISSIVE_KEY_LOCATION => {
+            let witness = PermissiveWitness::from_preimage(preimage)?;
+            let keys = permissive_keys(params).await?;
+            let params_k = transient_crypto_old::proofs::ParamsProverProvider::get_params(&V1Params(params), keys.k).await?;
+            midnight_zk_stdlib_v1::prove::<_, transient_crypto_old::proofs::TranscriptHash>(
+                params_k.as_ref(),
+                &keys.pk,
+                &GatePermissive,
+                &pis,
+                witness,
+                rng,
+            )
+            .map_err(|e| anyhow::anyhow!("permissive gate prove: {e}"))?
         }
         other => anyhow::bail!("not a CSL gate key location: {other}"),
     };

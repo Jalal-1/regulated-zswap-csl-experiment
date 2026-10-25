@@ -73,3 +73,32 @@
   k-of-n ECDSA authorization predicate can be added to the gate relation without new primitives;
   the spending key still has to reach the spend prover, so this makes the key insufficient rather
   than removing it from custody.
+
+## Revision 2 security fixes (done)
+
+The three protocol defects a source review found in `8285f69`, and the reproducibility gap, are
+fixed on this branch and covered by `ledger/tests/csl_regression.rs` under real proofs. See
+`design/stage1-design-decision.md` section 7 and `results.md` for details and outcomes.
+
+- **Authenticated gate route** (critical): the spend statement now exposes and constrains the mode,
+  gate address and entry point; `Input::well_formed` fills them from the input's policy. The
+  malicious-gate redirection was reproduced against `8285f69` (accepted) and is now rejected.
+- **Hiding binding** (high): `Poseidon(DOM[v2], nullifier, sender, token_type, rho)` with fresh
+  private `rho`, removing the known-key recognition oracle and binding the spent type across the
+  spend and gate proofs.
+- **One-time protected-type init**: `init` sets the type once; `update_root` is root-only; the gate
+  authorizes only its own asset.
+- **Real-proof CI, pinned reproduction**: `.github/workflows/csl-proving.yml` (mock-verify asserted
+  absent), `MANIFEST.json`, and a revision-checking `scripts/reproduce.sh`.
+
+## Still open after revision 2 (unchanged scope boundaries)
+
+- Change outputs, transients, contract owners, merges, multi-input (Stage 4). The hiding binding and
+  route authentication carry over unchanged to those shapes; `N_OUTPUTS` is still 1.
+- Mint and `AuthorizedClaim` of a guarded type are still not gated (Stage 4), as before.
+- Node integration (Stage 5) and measurements (Stage 6) remain untouched.
+- `rho` transport in a real wallet: here the fixture draws `rho` and hands it to both proofs. A
+  production wallet must do the same (draw once, use in the spend and the gate call); the experiment
+  does not define a wire-level carrier for it because it is private to the spender.
+- The permissive gate and the historical v1 relation are test-only; they are never dispatched or
+  embedded. A production build would gate them behind a test feature.

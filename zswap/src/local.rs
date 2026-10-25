@@ -34,6 +34,7 @@ use storage::storage::default_storage;
 use storage::storage::{HashMap, Map};
 use transient_crypto::encryption;
 use transient_crypto::merkle_tree::{self, InvalidUpdate, MerkleTree, MerkleTreeCollapsedUpdate};
+use transient_crypto::curve::Fr;
 use transient_crypto::proofs::ProofPreimage;
 use transient_crypto::repr::FieldRepr;
 
@@ -245,11 +246,14 @@ impl<D: DB> State<D> {
         segment: Option<u16>,
     ) -> Result<(State<D>, Input<ProofPreimage, D>), OfferCreationFailed> {
         self.spend_from_tree(rng, secret_keys, coin, segment, &self.merkle_tree.clone(), None)
+            .map(|(state, input, _rho)| (state, input))
     }
 
     /// Spends a coin whose token type is a contract-derived type: the CSL spend
     /// circuit re-derives the type from `derivation`, and for a `GateContract`
-    /// rule the input carries the policy binding the gate must authorize.
+    /// rule the input carries the policy binding the gate must authorize, and
+    /// the returned `rho` (always `Some` for a `GateContract` rule) is the
+    /// private blinding the gate's `authorize` proof must be given.
     #[instrument(skip(self, rng))]
     pub fn spend_with_derivation<R: Rng + CryptoRng + ?Sized>(
         &self,
@@ -258,7 +262,7 @@ impl<D: DB> State<D> {
         coin: &QualifiedCoinInfo,
         segment: Option<u16>,
         derivation: &TokenDerivation,
-    ) -> Result<(State<D>, Input<ProofPreimage, D>), OfferCreationFailed> {
+    ) -> Result<(State<D>, Input<ProofPreimage, D>, Option<Fr>), OfferCreationFailed> {
         self.spend_from_tree(
             rng,
             secret_keys,
@@ -278,8 +282,8 @@ impl<D: DB> State<D> {
         segment: Option<u16>,
         tree: &MerkleTree<(), D>,
         derivation: Option<&TokenDerivation>,
-    ) -> Result<(State<D>, Input<ProofPreimage, D>), OfferCreationFailed> {
-        let inp = Input::new_from_secret_key(
+    ) -> Result<(State<D>, Input<ProofPreimage, D>, Option<Fr>), OfferCreationFailed> {
+        let (inp, rho) = Input::new_from_secret_key(
             rng,
             coin,
             segment,
@@ -291,7 +295,7 @@ impl<D: DB> State<D> {
             pending_spends: self.pending_spends.insert(inp.nullifier, *coin),
             ..self.clone()
         };
-        Ok((res, inp))
+        Ok((res, inp, rho))
     }
 
     #[instrument(skip(self, rng))]
@@ -307,7 +311,7 @@ impl<D: DB> State<D> {
             .try_update_hash(0, output.coin_com.0, ())
             .map_err(OfferCreationFailed::MerkleTreeError)?
             .rehash();
-        let (res, input) = self.spend_from_tree(rng, secret_keys, coin, segment, &tree, None)?;
+        let (res, input, _rho) = self.spend_from_tree(rng, secret_keys, coin, segment, &tree, None)?;
         let io = Transient {
             nullifier: input.nullifier,
             coin_com: output.coin_com,

@@ -1,0 +1,186 @@
+# Real-proof CI for the regulated ZSwap CSL experiment.
+#
+# Everything here runs with the `proving` feature and the default
+# `proof-verifying` feature. `mock-verify` is asserted ABSENT from the resolved
+# feature graph before any test runs: a green run means real proofs were
+# produced and verified by the production verifier, never mocked.
+name: csl-real-proving
+
+on:
+  push:
+    branches: [ledger-experiment]
+    paths-ignore: ['docs/**', '**/*.md']
+  pull_request:
+    branches: [ledger-experiment]
+  workflow_dispatch:
+    inputs:
+      full_suite:
+        description: 'Also run the complete midnight-ledger-v10 proving suite (about 40 minutes)'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '17 3 * * 1'   # weekly full suite
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+  RUST_MIN_STACK: '67108864'
+  MIDNIGHT_PP: ${{ github.workspace }}/.csl/params
+  MIDNIGHT_LEDGER_TEST_STATIC_DIR: ${{ github.workspace }}/.csl/test-artifacts
+  PARAM_URL: https://midnight-s3-fileshare-dev-eu-west-1.s3.eu-west-1.amazonaws.com
+
+jobs:
+  csl-regressions:
+    name: CSL scenarios and regressions (real proofs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: csl-proving
+
+      - name: Tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq jq
+
+      - name: Record run metadata (part 1)
+        run: |
+          mkdir -p .csl/logs
+          {
+            echo "{"
+            echo "  \"implementation_commit\": \"$(git rev-parse HEAD)\","
+            echo "  \"rustc\": \"$(rustc -V)\","
+            echo "  \"cargo\": \"$(cargo -V)\","
+            echo "  \"features\": \"--features proving (default proof-verifying); mock-verify asserted absent\","
+            echo "  \"runner\": \"$(uname -srm)\","
+            echo "  \"started\": \"$(date -u +%FT%TZ)\""
+            echo "}"
+          } > .csl/logs/run-metadata-part1.json
+          cat .csl/logs/run-metadata-part1.json
+
+      - name: Assert mock-verify is absent from the resolved feature graph
+        run: |
+          set -euo pipefail
+          for pkg in midnight-ledger-v10 midnight-zswap midnight-zkir midnight-onchain-runtime midnight-coin-structure; do
+            n=$(cargo tree -p "$pkg" --features proving -e features 2>/dev/null | grep -c 'mock-verify' || true)
+            # packages without a `proving` feature: retry without it
+            if [ "$n" = "0" ] && ! cargo tree -p "$pkg" --features proving -e features >/dev/null 2>&1; then
+              n=$(cargo tree -p "$pkg" -e features | grep -c 'mock-verify' || true)
+            fi
+            echo "$pkg: mock-verify occurrences = $n"
+            [ "$n" = "0" ] || { echo "mock-verify is enabled for $pkg"; exit 1; }
+          done
+
+      - name: Public parameters (download, SHA-256 verified)
+        run: |
+          set -euo pipefail
+          mkdir -p "$MIDNIGHT_PP"
+          while read -r hash name; do
+            [ -n "${name:-}" ] || continue
+            f="$MIDNIGHT_PP/$name"
+            if [ -f "$f" ] && [ "$(sha256sum "$f" | cut -d' ' -f1)" = "$hash" ]; then echo "$name ok"; continue; fi
+            curl -fsSL --retry 3 -o "$f.part" "$PARAM_URL/$name"
+            got=$(sha256sum "$f.part" | cut -d' ' -f1)
+            [ "$got" = "$hash" ] || { echo "$name: hash mismatch ($got)"; exit 1; }
+            mv "$f.part" "$f"; echo "$name downloaded, verified"
+          done < ci/csl/params.sha256
+
+      - name: zkir CLIs
+        run: |
+          cargo build --release -p midnight-zkir --features binary --bin zkir
+          mkdir -p .csl/bin && cp target/release/zkir .csl/bin/zkir-v2
+          cargo build --release -p midnight-zkir-v3 --features binary --bin zkir
+          cp target/release/zkir .csl/bin/zkir-v3
+
+      - name: Test artifacts (zkir compile-many, as flake.nix does)
+        run: |
+          set -euo pipefail
+          art="$MIDNIGHT_LEDGER_TEST_STATIC_DIR"; rm -rf "$art"; mkdir -p "$art"
+          for c in zkir-precompiles/*/; do
+            name=$(basename "$c"); mkdir -p "$art/$name/zkir" "$art/$name/keys"; cp "$c"/* "$art/$name/zkir/"
+            ver=$(jq -s '.[0].version.major' "$art/$name/zkir"/*.zkir)
+            if [ "$ver" = "2" ]; then bin=.csl/bin/zkir-v2; else bin=.csl/bin/zkir-v3; fi
+            "$bin" compile-many "$art/$name/zkir" "$art/$name/keys"
+          done
+
+      - name: Unit suites touched by the change
+        run: |
+          cargo test -p midnight-coin-structure custom_spend
+          cargo test --release -p midnight-zkir --lib
+          cargo test --release -p midnight-zkir --test zswap_spend
+          cargo test --release -p midnight-zkir --test zswap_spend_csl
+          cargo test --release -p midnight-zswap
+          cargo test --release -p midnight-onchain-runtime
+          cargo test --release -p midnight-ledger-v10 --lib
+
+      - name: Strict controls (plain transfer accepted; corrupted proof and altered statement rejected)
+        run: cargo test --release -p midnight-ledger-v10 --features proving --test csl_baseline -- --nocapture
+
+      - name: Stage 3 scenarios (T01, T02/T12, T04, T06, T07, T08, T13a, T13b, T24)
+        run: cargo test --release -p midnight-ledger-v10 --features proving --test csl_regulated_transfer -- --nocapture --test-threads=1
+
+      - name: Regression suite (gate route authentication, hiding binding, protected-token configuration, historical layouts)
+        run: cargo test --release -p midnight-ledger-v10 --features proving --test csl_regression -- --nocapture --test-threads=1
+
+      - name: Record run metadata (part 2: artifact hashes)
+        if: always()
+        run: |
+          {
+            echo "{"
+            echo "  \"embedded_spend_verifier_sha256\": \"$(sha256sum zswap/static/spend.verifier | cut -d' ' -f1)\","
+            echo "  \"embedded_spend_verifier_pin\": \"$(cut -d' ' -f1 zswap/static/spend.verifier.csl.sha256)\","
+            echo "  \"params_sha256\": $(cd "$MIDNIGHT_PP" && sha256sum bls_midnight_2p* | jq -R -s 'split("\n") | map(select(length>0))'),"
+            echo "  \"test_artifact_keys_sha256\": $(cd "$MIDNIGHT_LEDGER_TEST_STATIC_DIR" && find . -name '*.verifier' -o -name '*.prover' | sort | xargs sha256sum | jq -R -s 'split("\n") | map(select(length>0))'),"
+            echo "  \"finished\": \"$(date -u +%FT%TZ)\""
+            echo "}"
+          } > .csl/logs/run-metadata-part2.json
+          cat .csl/logs/run-metadata-part2.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: csl-run-metadata
+          path: .csl/logs/
+
+  full-ledger-proving:
+    name: Complete midnight-ledger-v10 proving suite
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_suite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: csl-proving
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq jq
+      - name: Public parameters
+        run: |
+          set -euo pipefail
+          mkdir -p "$MIDNIGHT_PP"
+          while read -r hash name; do
+            [ -n "${name:-}" ] || continue
+            f="$MIDNIGHT_PP/$name"
+            curl -fsSL --retry 3 -o "$f" "$PARAM_URL/$name"
+            [ "$(sha256sum "$f" | cut -d' ' -f1)" = "$hash" ] || { echo "$name: hash mismatch"; exit 1; }
+          done < ci/csl/params.sha256
+      - name: zkir CLIs and test artifacts
+        run: |
+          set -euo pipefail
+          cargo build --release -p midnight-zkir --features binary --bin zkir && mkdir -p .csl/bin && cp target/release/zkir .csl/bin/zkir-v2
+          cargo build --release -p midnight-zkir-v3 --features binary --bin zkir && cp target/release/zkir .csl/bin/zkir-v3
+          art="$MIDNIGHT_LEDGER_TEST_STATIC_DIR"; rm -rf "$art"; mkdir -p "$art"
+          for c in zkir-precompiles/*/; do
+            name=$(basename "$c"); mkdir -p "$art/$name/zkir" "$art/$name/keys"; cp "$c"/* "$art/$name/zkir/"
+            ver=$(jq -s '.[0].version.major' "$art/$name/zkir"/*.zkir)
+            if [ "$ver" = "2" ]; then bin=.csl/bin/zkir-v2; else bin=.csl/bin/zkir-v3; fi
+            "$bin" compile-many "$art/$name/zkir" "$art/$name/keys"
+          done
+      - name: Assert mock-verify absent
+        run: |
+          n=$(cargo tree -p midnight-ledger-v10 --features proving -e features | grep -c 'mock-verify' || true); echo "mock-verify occurrences: $n"; [ "$n" = "0" ]
+      - name: Full suite
+        run: cargo test --release -p midnight-ledger-v10 --features proving --no-fail-fast -- --test-threads=1

@@ -15,8 +15,9 @@
 //!
 //! This relation is the production spend circuit of the regulated ZSwap
 //! experiment. It proves everything [`ZswapSpend`](crate::zswap_spend::ZswapSpend)
-//! proves, with the same 68 public inputs in the same order, plus two CSL
-//! obligations that are asserted unconditionally on every spend:
+//! proves, with the legacy 68 public inputs in the same order followed by five
+//! appended route authenticators, plus three CSL obligations that are asserted
+//! unconditionally on every spend:
 //!
 //! 1. *Type re-derivation.* The coin's token type is the ledger derivation of a
 //!    witnessed `(domain separator, minting contract address, spend rule)`:
@@ -27,17 +28,29 @@
 //!    The all-zero native token type is accepted under `Empty` without a
 //!    preimage. `GateCircuit` descriptors cannot be expressed (the rule kind
 //!    is a bit) and therefore fail closed.
-//! 2. *Policy binding.* The first public input, the binding slot that is
-//!    constant zero for every spend today, becomes
-//!    `Poseidon(DOM_BIND, nullifier, sender, gate, ep_hash)` for guarded coins
-//!    and stays `0` for `Empty` coins. `sender` is the coin public key derived
-//!    in-circuit from the spending key (or the owning contract address). The
-//!    ledger matches this value against the gate contract's claimed
-//!    authorizations, so a guarded coin cannot be spent without a bound gate
-//!    call, and the gate cannot be shown a different sender than the one whose
-//!    key authorizes the spend.
+//! 2. *Hiding policy binding.* The first public input, the binding slot that
+//!    is constant zero for every spend today, becomes
+//!    `Poseidon(DOM_BIND, nullifier, sender, token_type, rho)` for guarded
+//!    coins and stays `0` for `Empty` coins. `sender` is the coin public key
+//!    derived in-circuit from the spending key (or the owning contract
+//!    address); `token_type` is the coin's own type, pinned by the commitment
+//!    opening and the derivation; `rho` is fresh per-spend randomness that is a
+//!    private witness here and in the gate proof. The ledger matches this value
+//!    against the gate contract's claimed authorizations, so a guarded coin
+//!    cannot be spent without a bound gate call, the gate cannot be shown a
+//!    different sender or a different token type than the ones that authorize
+//!    the spend, and an observer who knows a candidate sender key cannot
+//!    recompute the binding (it hides behind `rho`).
+//! 3. *Authenticated route.* Five public inputs appended after the legacy 68,
+//!    `[mode, gate_hi, gate_lo, ep_hi, ep_lo]`, are constrained to the rule kind
+//!    and the witnessed gate address and entry point that the type derivation
+//!    pins (all zero for `Empty`). The verifier fills them from the input's
+//!    public `policy` fields, so the routing fields the ledger matches on are
+//!    authenticated by the proof: a guarded coin cannot be routed to another
+//!    contract or entry point, and cannot be presented as unguarded by omitting
+//!    its policy, because the proof itself says which gate and mode it has.
 //!
-//! Witness layout: nine CSL field elements are *prepended* to the legacy
+//! Witness layout: ten CSL field elements are *prepended* to the legacy
 //! [`SpendWitness`] layout, so the tail-based accessors on `ProofPreimage`
 //! (`Input::delta`, `Input::binding_randomness`) keep working unchanged.
 
@@ -69,10 +82,16 @@ use crate::zswap_spend::{
 };
 use base_crypto::fab::{Alignment, AlignmentAtom, AlignmentSegment};
 
-/// Number of CSL witness elements prepended to the legacy spend witness.
-pub const CSL_PREFIX_INPUTS: usize = 9;
+/// Number of CSL witness elements prepended to the legacy spend witness:
+/// `[rule_kind, domain_sep(2), mint_address(2), gate(2), ep_hash(2), rho]`.
+pub const CSL_PREFIX_INPUTS: usize = 10;
 /// Total witness length of the CSL spend circuit.
 pub const NUM_INPUTS: usize = CSL_PREFIX_INPUTS + LEGACY_NUM_INPUTS;
+/// Number of appended route authenticators: `[mode, gate_hi, gate_lo, ep_hi, ep_lo]`.
+pub const ROUTE_PUBLIC_INPUTS: usize = 5;
+/// Public inputs of the CSL spend circuit: the legacy 68 (binding in slot 0)
+/// followed by the five route authenticators.
+pub const CSL_NUM_PUBLIC_INPUTS: usize = NUM_PUBLIC_INPUTS + ROUTE_PUBLIC_INPUTS;
 
 /// Key location under which the ledger requests zswap spend proofs.
 pub const SPEND_KEY_LOCATION: &str = "midnight/zswap/spend";
@@ -89,8 +108,8 @@ pub const GATE_CONTRACT_DISCRIMINANT: u8 = 2;
 /// The inner domain separator of token-type derivation, zero-padded to 32 bytes
 /// (see `coin_structure::contract::ContractAddress::custom_token_type`).
 pub const DERIVE_TOKEN_SEP: [u8; 32] = *b"midnight:derive_token\0\0\0\0\0\0\0\0\0\0\0";
-/// Poseidon domain for the policy binding.
-pub const BIND_DOMAIN_SEP: &[u8; 21] = b"midnight:csl-bind[v1]";
+/// Poseidon domain for the policy binding (v2: hiding, token-type bound).
+pub const BIND_DOMAIN_SEP: &[u8; 21] = b"midnight:csl-bind[v2]";
 
 /// Field constant for [`BIND_DOMAIN_SEP`].
 pub fn bind_domain() -> Fr {
@@ -139,6 +158,9 @@ pub struct CslSpendWitness {
     pub gate_address: [Fr; 2],
     /// Gate entry point hash (zero for `Empty`).
     pub ep_hash: [Fr; 2],
+    /// Fresh per-spend randomness that blinds the policy binding. Private in
+    /// this proof and in the gate proof; never public. Ignored for `Empty`.
+    pub rho: Fr,
     /// The legacy witness. Its `binding_input` is ignored: the binding is
     /// recomputed by [`CslSpendWitness::binding`].
     pub base: SpendWitness,
@@ -153,6 +175,7 @@ impl CslSpendWitness {
         inputs.extend(self.mint_address);
         inputs.extend(self.gate_address);
         inputs.extend(self.ep_hash);
+        inputs.push(self.rho);
         inputs.extend(self.base.flatten());
         debug_assert_eq!(inputs.len(), NUM_INPUTS);
         inputs
@@ -162,25 +185,33 @@ impl CslSpendWitness {
         self.rule_kind == Fr::from(RULE_GATE_CONTRACT)
     }
 
-    /// The policy binding this witness commits to: `0` for `Empty`, otherwise
-    /// `Poseidon(DOM, nullifier, sender, gate, ep_hash)`.
+    /// The hiding policy binding this witness commits to: `0` for `Empty`,
+    /// otherwise `Poseidon(DOM, nullifier, sender, token_type, rho)`. Off-circuit
+    /// mirror: `coin_structure::custom_spend::csl_policy_binding`.
     pub fn binding(&self) -> Fr {
         if !self.is_gated() {
             return 0.into();
         }
         let [cn_hi, cn_lo] = self.base.nullifier();
         let [snd_hi, snd_lo] = self.base.target();
-        transient_hash(&[
-            bind_domain(),
-            cn_hi,
-            cn_lo,
-            snd_hi,
-            snd_lo,
-            self.gate_address[0],
-            self.gate_address[1],
-            self.ep_hash[0],
-            self.ep_hash[1],
-        ])
+        let [tt_hi, tt_lo] = self.base.token_type;
+        transient_hash(&[bind_domain(), cn_hi, cn_lo, snd_hi, snd_lo, tt_hi, tt_lo, self.rho])
+    }
+
+    /// The five route authenticators appended to the statement:
+    /// `[mode, gate_hi, gate_lo, ep_hi, ep_lo]` (all zero for `Empty`).
+    pub fn route_public_inputs(&self) -> [Fr; ROUTE_PUBLIC_INPUTS] {
+        if self.is_gated() {
+            [
+                Fr::from(RULE_GATE_CONTRACT),
+                self.gate_address[0],
+                self.gate_address[1],
+                self.ep_hash[0],
+                self.ep_hash[1],
+            ]
+        } else {
+            [0.into(); ROUTE_PUBLIC_INPUTS]
+        }
     }
 
     /// The token type this witness derives (off-circuit mirror of the constraint).
@@ -194,11 +225,13 @@ impl CslSpendWitness {
         )
     }
 
-    /// The 68 public inputs, identical to the legacy layout except that the
-    /// first element is the policy binding.
+    /// The 73 public inputs: the legacy layout with the policy binding in the
+    /// first element, followed by the five route authenticators.
     pub fn public_inputs(&self) -> Vec<Fr> {
         let mut pis = self.base.public_inputs();
         pis[0] = self.binding();
+        pis.extend(self.route_public_inputs());
+        debug_assert_eq!(pis.len(), CSL_NUM_PUBLIC_INPUTS);
         pis
     }
 
@@ -259,6 +292,7 @@ impl CslSpendWitness {
             mint_address: two_in(3),
             gate_address: two_in(5),
             ep_hash: two_in(7),
+            rho: inputs[9],
             base,
         })
     }
@@ -372,6 +406,7 @@ impl Relation for ZswapSpendCsl {
         let mint_address = [&memory[3], &memory[4]];
         let gate_address = [&memory[5], &memory[6]];
         let ep_hash = [&memory[7], &memory[8]];
+        let rho = &memory[9];
         // Legacy layout, offset by the prefix.
         let o = CSL_PREFIX_INPUTS;
         let is_user = &memory[o];
@@ -537,7 +572,11 @@ impl Relation for ZswapSpendCsl {
         let derivation_ok = cond_select(std, layouter, &type_ok, &one, &native_ok)?;
         std.assert_non_zero(layouter, &derivation_ok)?;
 
-        // CSL 2: the policy binding in the first public input.
+        // CSL 2: the hiding policy binding in the first public input:
+        // Poseidon(DOM_BIND, nullifier, sender, token_type, rho). The gate proof
+        // opens the same commitment with its initialized token-type cell, so the
+        // spent type is authenticated across both proofs; `rho` keeps the public
+        // value from being a recognition oracle for anyone who knows a key.
         let dom_bind = fixed_fr(layouter, bind_domain())?;
         let bound = std.poseidon(
             layouter,
@@ -547,10 +586,9 @@ impl Relation for ZswapSpendCsl {
                 cn_lo.clone(),
                 target_hi,
                 target_lo,
-                gate_address[0].clone(),
-                gate_address[1].clone(),
-                ep_hash[0].clone(),
-                ep_hash[1].clone(),
+                token_type[0].clone(),
+                token_type[1].clone(),
+                rho.clone(),
             ],
         )?;
         let binding = std.select(layouter, &rule_bit, &bound, &zero)?;
@@ -642,7 +680,19 @@ impl Relation for ZswapSpendCsl {
         pis.extend([op_push_s, one, two, neg_two.clone(), neg_two, vc_x, vc_y]); // pi[60..67]
         pis.push(op_ins_1); // pi[67]
 
-        debug_assert_eq!(pis.len(), NUM_PUBLIC_INPUTS);
+        // CSL 3: authenticated route. The mode, gate address and entry point the
+        // ledger routes on are public inputs constrained to the witnessed values
+        // the type derivation pins (all zero for `Empty`). The verifier fills them
+        // from the input's public `policy` fields, so those fields cannot be
+        // repointed at another contract or entry point, and a guarded coin cannot
+        // be presented as unguarded.
+        let route_gate_hi = std.select(layouter, &rule_bit, gate_address[0], &zero)?;
+        let route_gate_lo = std.select(layouter, &rule_bit, gate_address[1], &zero)?;
+        let route_ep_hi = std.select(layouter, &rule_bit, ep_hash[0], &zero)?;
+        let route_ep_lo = std.select(layouter, &rule_bit, ep_hash[1], &zero)?;
+        pis.extend([rule_kind.clone(), route_gate_hi, route_gate_lo, route_ep_hi, route_ep_lo]); // pi[68..73]
+
+        debug_assert_eq!(pis.len(), CSL_NUM_PUBLIC_INPUTS);
         pis.iter()
             .try_for_each(|pi| std.constrain_as_public_input(layouter, pi))
     }

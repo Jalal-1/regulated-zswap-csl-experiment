@@ -103,6 +103,7 @@ impl<D: DB> Input<ProofPreimage, D> {
             tree,
             derivation,
         )
+        .map(|(input, _rho)| input)
     }
 
     pub fn retarget_segment(&self, new_segment: u16) -> Self {
@@ -144,6 +145,12 @@ impl<D: DB> Input<ProofPreimage, D> {
 
     /// `derivation` carries the token-type derivation inputs the CSL spend
     /// circuit re-derives (`None` is only valid for the native, all-zero type).
+    ///
+    /// For a `GateContract` rule the input's policy binding is a hiding
+    /// commitment blinded with fresh randomness `rho` drawn from `rng`. `rho` is
+    /// returned to the caller (`Some` for guarded spends) because the gate call
+    /// that authorizes this spend must prove the same binding and therefore
+    /// needs the same blinding as a private witness. It is never serialized.
     pub(crate) fn new_from_secret_key<A: Debug + Storable<D>, R: Rng + CryptoRng + ?Sized>(
         rng: &mut R,
         coin: &QualifiedCoinInfo,
@@ -151,7 +158,7 @@ impl<D: DB> Input<ProofPreimage, D> {
         sk: SenderEvidence<'_>,
         tree: &MerkleTree<A, D>,
         derivation: Option<&TokenDerivation>,
-    ) -> Result<Self, OfferCreationFailed> {
+    ) -> Result<(Self, Option<Fr>), OfferCreationFailed> {
         let rc_e: EmbeddedFr = rng.r#gen();
         let rc = Fr::try_from(rc_e).expect("Fr should be larger than EmbeddedFr");
         let nullifier = CoinInfo::from(coin).nullifier(&sk);
@@ -200,18 +207,23 @@ impl<D: DB> Input<ProofPreimage, D> {
             value_commitment.0
         ));
         let Commitment(hash) = CoinInfo::from(coin).commitment(&sk.clone().into());
-        // CSL witness prefix: rule kind, domain separator, minting address, gate, entry point.
+        // CSL witness prefix: rule kind, domain separator, minting address, gate,
+        // entry point, and the binding's blinding `rho`.
         let zero32 = HashOutput([0u8; 32]);
-        let (rule_kind, domain_sep, mint_address, gate, ep_hash, policy) = match derivation {
-            None => (0u64, zero32, ContractAddress(zero32), ContractAddress(zero32), zero32, None),
+        let (rule_kind, domain_sep, mint_address, gate, ep_hash, policy, rho) = match derivation {
+            None => (0u64, zero32, ContractAddress(zero32), ContractAddress(zero32), zero32, None, None),
             Some(d) => match &d.rule {
-                SpendRule::Empty => (0u64, d.domain_sep, d.mint_address, ContractAddress(zero32), zero32, None),
+                SpendRule::Empty => (0u64, d.domain_sep, d.mint_address, ContractAddress(zero32), zero32, None, None),
                 SpendRule::GateContract(gate, ep_hash) => {
                     let sender = match &sk {
                         SenderEvidence::User(sk) => sk.public_key().0,
                         SenderEvidence::Contract(addr) => addr.0,
                     };
-                    let binding = csl_policy_binding(&nullifier, &sender, gate, ep_hash);
+                    // Fresh, uniform blinding: the binding must hide the sender from
+                    // anyone who knows a candidate key, so it is drawn from the
+                    // caller's cryptographic RNG once per spend and never reused.
+                    let rho: Fr = rng.r#gen();
+                    let binding = csl_policy_binding(&nullifier, &sender, &coin.type_, rho);
                     (
                         1u64,
                         d.domain_sep,
@@ -223,6 +235,7 @@ impl<D: DB> Input<ProofPreimage, D> {
                             entry_point_hash: *ep_hash,
                             binding,
                         }),
+                        Some(rho),
                     )
                 }
                 SpendRule::GateCircuit(_) => return Err(OfferCreationFailed::UnsupportedSpendRule),
@@ -235,6 +248,7 @@ impl<D: DB> Input<ProofPreimage, D> {
         inputs.extend(fr_pair(&mint_address.0.0));
         inputs.extend(fr_pair(&gate.0.0));
         inputs.extend(fr_pair(&ep_hash.0));
+        inputs.push(rho.unwrap_or_else(|| Fr::from(0)));
         sk.field_repr(&mut inputs);
         tree.path_for_leaf(coin.mt_index, ((), hash))
             .map_err(OfferCreationFailed::InvalidIndex)?
@@ -267,7 +281,7 @@ impl<D: DB> Input<ProofPreimage, D> {
             proof: Arc::new(proof_preimage),
         };
         //debug_assert!(inp.well_formed().is_ok());
-        Ok(inp)
+        Ok((inp, rho))
     }
 }
 
