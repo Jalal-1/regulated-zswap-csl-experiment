@@ -6,7 +6,8 @@
 #         verify     check that $LEDGER is at the pinned commit and has no local modifications (never resets)
 #         params     download and verify (SHA-256) the public parameters bls_midnight_2p0..18 into $MIDNIGHT_PP
 #         clis       build the zkir CLIs (v2 and v3) into $BIN
-#         artifacts  compile zkir-precompiles/* into $MIDNIGHT_LEDGER_TEST_STATIC_DIR (as flake.nix does)
+#         artifacts  compile zkir-precompiles/* into $MIDNIGHT_LEDGER_TEST_STATIC_DIR and place the zswap and
+#                    dust keys into $MIDNIGHT_PP/<component>/<version> (as flake.nix and its local-params do)
 #         features   assert `mock-verify` is absent from the resolved feature graph of every tested crate
 #         metadata   write $LOGS/run-metadata.json (revision, toolchain, features, parameter and artifact hashes)
 #         unit       the non-proving suites touched by the change
@@ -130,6 +131,22 @@ stage_artifacts() {
     "$bin" compile-many "$art/$name/zkir" "$art/$name/keys" >> "$LOGS/test_artifacts.log" 2>&1
   done
   log "artifacts in $art"
+  # Published zswap and dust keys into the parameter cache, as flake.nix's local-params does: the
+  # zswap unit tests read them from $MIDNIGHT_PP/<component>/<version>/ and never download them.
+  local ver; ver="$(tr -d '\n' < "$LEDGER/static/version")"
+  for c in zswap dust; do
+    mkdir -p "$MIDNIGHT_PP/$c/$ver"
+    cp -a "$art/$c/zkir/." "$MIDNIGHT_PP/$c/$ver/"
+    cp -a "$art/$c/keys/." "$MIDNIGHT_PP/$c/$ver/"
+  done
+  # The data provider serves a cached file only if its SHA-256 matches the sidecar compiled into
+  # midnight-zswap; check here so a compiled key that differs from the published one fails loudly.
+  local f exp got
+  for f in spend.prover spend.verifier spend.bzkir output.prover output.verifier output.bzkir sign.prover sign.verifier sign.bzkir; do
+    exp="$(cut -c1-64 "$LEDGER/zswap/static/$f.sha256")"; got="$(sha256sum "$MIDNIGHT_PP/zswap/$ver/$f" | cut -c1-64)"
+    [ "$exp" = "$got" ] || { log "zswap/$ver/$f: compiled key differs from the pinned hash ($got != $exp)"; exit 4; }
+  done
+  log "zswap/$ver and dust/$ver keys placed in $MIDNIGHT_PP (the nine zswap files match the pinned hashes)"
 }
 
 stage_features() {

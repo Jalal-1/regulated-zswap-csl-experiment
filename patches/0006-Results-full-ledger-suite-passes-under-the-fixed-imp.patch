@@ -1,7 +1,7 @@
 From b5575a56cc2a9def14e09e17b841a17fad5bb099 Mon Sep 17 00:00:00 2001
 From: Jalal Hannan <jalal.hannan@midnight.foundation>
 Date: Sun, 25 Oct 2026 21:36:50 +0000
-Subject: [PATCH 6/7] Results: full ledger suite passes under the fixed
+Subject: [PATCH 6/9] Results: full ledger suite passes under the fixed
  implementation (22 targets)
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>

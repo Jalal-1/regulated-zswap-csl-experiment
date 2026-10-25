@@ -2,7 +2,7 @@
   "description": "Pins for reproducing the regulated ZSwap CSL experiment. scripts/reproduce.sh reads this file.",
   "repository": "https://github.com/Jalal-1/regulated-zswap-csl-experiment.git",
   "implementation_branch": "ledger-experiment",
-  "implementation_commit": "6ff98056dddf1035d864a950f9e2639a2957c4ee",
+  "implementation_commit": "b047cf77998ebfee2439dc5f936e61b8d10ced56",
   "upstream_base_commit": "fa995fa5791bc19112e97334a2d9265751c35fad",
   "upstream_base_branch": "midnightntwrk/midnight-ledger alexshielded/custom-spend-logic",
   "toolchain": {

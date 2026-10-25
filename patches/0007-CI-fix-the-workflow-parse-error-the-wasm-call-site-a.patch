@@ -1,7 +1,7 @@
 From 6ff98056dddf1035d864a950f9e2639a2957c4ee Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Sun, 25 Oct 2026 21:53:58 +0000
-Subject: [PATCH 7/7] CI: fix the workflow parse error, the wasm call site and
+Subject: [PATCH 7/9] CI: fix the workflow parse error, the wasm call site and
  clippy lints
 
 - .github/workflows/csl-proving.yml: quote a step name that contained

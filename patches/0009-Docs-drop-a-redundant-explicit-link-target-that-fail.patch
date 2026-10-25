@@ -1,0 +1,34 @@
+From b047cf77998ebfee2439dc5f936e61b8d10ced56 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 25 Oct 2026 22:18:40 +0000
+Subject: [PATCH 9/9] Docs: drop a redundant explicit link target that failed
+ `cargo doc`
+
+onchain-runtime denies rustdoc warnings; `cargo doc --all-features
+--no-deps` (the step after clippy in the upstream check job) rejected
+`[ShieldedTokenType](coin_structure::coin::ShieldedTokenType)` because the
+label already resolves to that item. The whole-workspace doc build passes
+with the shorter form.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Q9CJgdhDhwqKR5eCeFM2VG
+---
+ onchain-runtime/src/context.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/onchain-runtime/src/context.rs b/onchain-runtime/src/context.rs
+index cd142902..563fc8fb 100644
+--- a/onchain-runtime/src/context.rs
++++ b/onchain-runtime/src/context.rs
+@@ -620,7 +620,7 @@ impl Distribution<ClaimedUnshieldedSpendsKey> for Standard {
+ /// contract chose, together with the [`SpendRule`] the minted token type
+ /// commits to. Together with the calling contract's address this fully
+ /// determines the minted
+-/// [`ShieldedTokenType`](coin_structure::coin::ShieldedTokenType).
++/// [`ShieldedTokenType`].
+ #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serializable, Storable, Hash)]
+ #[storable(base)]
+ #[tag = "contract-effects-shielded-mint-key[v1]"]
+-- 
+2.43.0
+
