@@ -1,7 +1,7 @@
 From 7f40a1a4a981d233e3d380907e165d12cfac6b93 Mon Sep 17 00:00:00 2001
 From: Jalal Hannan <jalal.hannan@midnight.foundation>
 Date: Sun, 25 Oct 2026 20:09:47 +0000
-Subject: [PATCH 5/5] Regulated ZSwap CSL: authenticate gate route, hide
+Subject: [PATCH 5/6] Regulated ZSwap CSL: authenticate gate route, hide
  binding, init protected type
 
 Fixes three protocol defects found in review of 8285f69 and keeps the old

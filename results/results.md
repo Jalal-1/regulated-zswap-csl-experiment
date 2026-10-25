@@ -153,3 +153,38 @@ The embedded spend verifier key was regenerated from the fixed relation:
 `zswap/static/spend.verifier` persistent-hash `bb6033fb0cccf70eec4328dca6d61d5e95d336266e629c340bd0eaefbf39e932` (pinned in
 `spend.verifier.csl.sha256`). `zswap::verify::embedded_spend_verifier_key_is_the_csl_key` passes, so
 the key the ledger embeds is the one the production prover generates.
+
+### Full ledger suite under the fixed implementation
+
+`cargo test --release -p midnight-ledger-v10 --features proving --no-fail-fast -- --test-threads=1`
+on the fixed code (ledger commit `7f40a1a4`; the commit that adds this section changes documentation
+only). Wall clock 42 minutes including compilation; log `full_suite_revision2`. Every one of the 22
+targets passes, with the new embedded key in place:
+
+| Target | Result |
+| --- | --- |
+| `src/lib.rs` unit tests | 98 passed |
+| `composable` | 3 passed, 31.5 s |
+| `contract_deployment` | 2 passed |
+| `csl_baseline` | 3 passed, 33.9 s |
+| `csl_gate_layout` | 1 passed |
+| `csl_regression` (revision 2) | 14 passed, 303.2 s |
+| `csl_regulated_transfer` | 9 passed, 206.3 s |
+| `dust` | 4 passed, 14.1 s |
+| `fallible` | 1 passed |
+| `intent` | 16 passed, 10.3 s |
+| `maintenance` | 2 passed |
+| `malicious_imbalance` | 2 passed, 35.2 s |
+| `micro-dao` | 1 passed, 2 ignored (ignored upstream), 116.3 s |
+| `noop-dos` | 1 passed |
+| `simple-merkle-tree` | 1 passed, 5.8 s |
+| `system_tx` | 5 passed, 1 ignored (ignored upstream) |
+| `token_vault_shielded` | 2 passed, 85.9 s |
+| `token_vault_unshielded` | 2 passed, 4.9 s |
+| `verify-proof` | 1 passed, 185.0 s |
+| `zkir-artifacts` | 1 passed |
+| doc tests | 0 |
+
+The two existing tests that spend contract-owned coins (`micro-dao`, `token_vault_shielded`) still
+pass: their coins are of the native type, which the relation accepts under `Empty` with all five
+route authenticators zero.
