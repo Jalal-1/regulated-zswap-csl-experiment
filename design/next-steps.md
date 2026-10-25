@@ -102,3 +102,12 @@ fixed on this branch and covered by `ledger/tests/csl_regression.rs` under real 
   does not define a wire-level carrier for it because it is private to the spender.
 - The permissive gate and the historical v1 relation are test-only; they are never dispatched or
   embedded. A production build would gate them behind a test feature.
+- **Proof-server dispatch for the CSL relations.** `proof-server/src/endpoints.rs` (`/prove`,
+  `/prove-tx`, and `/check` where it is reached for spends) must route the key locations that
+  `zkir::is_native_relation` recognises to `zswap_spend_csl::prove_from_preimage` and
+  `csl_gate::prove_from_preimage` with the server's parameter provider, exactly as
+  `zkir::LocalProvingProvider` does, and return the proof in the variant the embedded verifier key
+  selects. Until then, wallets and dapps that prove through the server cannot spend any zswap coin
+  on this branch (the server interprets the shipped IR and rejects the 87-input CSL preimage with
+  "Expected 77 inputs, received 87"). The three failing `proving` integration tests (`Transient` x2,
+  `TransactionBig`) are the acceptance test; the record is in `results/results.md`.

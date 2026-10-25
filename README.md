@@ -429,6 +429,14 @@ Each is stated so it is not mistaken for something it is not.
   T07 and T08. This is the first item in `design/next-steps.md`.
 - **No negative test for a guarded transient, contract owner, mint, claim or merge** even where
   the design argues they fail by construction.
+- **Proving a zswap spend through the proof server is unsupported on this branch.** The proof
+  server (`proof-server` crate) proves `midnight/zswap/spend` by interpreting the shipped zswap IR
+  with the published key; the CSL spend preimage has 87 inputs where that IR expects 77, so the
+  server answers HTTP 400 for every zswap input, guarded or not. Only the in-process prover
+  (`zkir::LocalProvingProvider`, used by the ledger, the wallet-side Rust code and every test in
+  this record) dispatches the hand-written CSL relations. Three upstream JavaScript integration
+  tests (`Transient` x2, `TransactionBig`) fail for this reason; see `results/results.md`, "The six
+  JavaScript integration-test failures", and `design/next-steps.md`.
 
 ---
 
