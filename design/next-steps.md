@@ -111,3 +111,7 @@ fixed on this branch and covered by `ledger/tests/csl_regression.rs` under real 
   on this branch (the server interprets the shipped IR and rejects the 87-input CSL preimage with
   "Expected 77 inputs, received 87"). The three failing `proving` integration tests (`Transient` x2,
   `TransactionBig`) are the acceptance test; the record is in `results/results.md`.
+- **Compact.** Nothing of this exists in Compact yet. `compact-support.md` lists what the compiler,
+  the runtime and the SDK need for an issuer that mints a regulated token (C1 to C6), for the gate
+  (G1 to G6) and for wallets (W1 to W4), with an order of work and acceptance tests. The first step
+  is ledger-only: a Rust test that mints a `GateContract`-typed coin through a contract program.

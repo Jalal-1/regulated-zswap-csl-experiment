@@ -30,7 +30,8 @@ reviewed commit. See "Revision 2: security fixes" below.
 properties mapped to code and tests, a file-by-file map of the diff with what to check, the open
 questions, and how to run and extend the work. `scripts/reproduce.sh` reproduces every run from a
 clean machine against the commit pinned in `MANIFEST.json` (no Nix needed). The ledger code itself is
-on the `ledger-experiment` branch.
+on the `ledger-experiment` branch. For the short version read `SUMMARY.md`; for what the Compact
+toolchain would need in order to mint and gate a regulated token, read `design/compact-support.md`.
 
 ---
 
@@ -60,6 +61,8 @@ Branch `main` (this branch):
 | `plan/review-of-v1.md`, `plan/plan_v1_to_v2.diff` | The source-verification review of revision 1 and the diff it produced. |
 | `design/stage1-design-decision.md` | The Stage 1 design decision (decisions D1 to D12, movement-path inventory P1 to P12) with section 6 "as built" notes. |
 | `design/next-steps.md` | Handoff for the next person: open items in order, and findings. |
+| `design/compact-support.md` | What is required to create a regulated ZSwap token from Compact: the issuer contract, the gate, the wallet and SDK surface, and the order to do it in. |
+| `SUMMARY.md` | The high-level summary: question, answer, what was built, revision 2, evidence, limits. |
 | `patches/000*-*.patch` | The ledger changes as a patch series (nine commits) against `midnightntwrk/midnight-ledger` commit `fa995fa5791bc19112e97334a2d9265751c35fad` (branch `alexshielded/custom-spend-logic`, the Custom Spend Logic draft). Apply with `git am`. |
 | `results/results.md` | The results log: every test run with its command, outcome and timing, and the disposal of every scenario. |
 | `results/*.txt` | Trimmed logs of every build and test run, including the failed iterations. |
@@ -71,7 +74,7 @@ Branch `main` (this branch):
 | `results/csl_regression_run.txt` | The revision-2 regression suite (14 tests) under real proofs. |
 
 Branch `ledger-experiment`: the actual ledger branch, that is, the full history of
-`midnightntwrk/midnight-ledger` up to `fa995fa` plus the four experiment commits. It is the same
+`midnightntwrk/midnight-ledger` up to `fa995fa` plus the ten experiment commits. It is the same
 content as the patch series; it exists so the branch can be checked out and built directly.
 
 ---
